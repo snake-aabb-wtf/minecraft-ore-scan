@@ -1,81 +1,81 @@
-# Minecraft Ore Scan App
+# Minecraft 矿物扫描器 (Ore Scan App)
 
-A GUI tool that automates Minecraft Java Edition world generation and ore scanning. Download Vanilla server → pre-generate chunks by seed → scan for ores → export to Excel — all in one automated pipeline.
+一个自动化的 Minecraft Java 版矿物扫描 GUI 工具。一键完成：自动下载原版服务端 → 根据种子预生成世界 → 扫描矿物坐标 → 导出 Excel，全流程自动化。
 
-> 🤖 This project was developed by **TRAE AI** (https://trae.ai) — an AI-powered IDE and coding assistant.
+> 🤖 本项目由 **TRAE AI**（https://trae.ai）开发 —— AI 驱动的 IDE 与编程助手。
 
-## Features
+## 功能特性
 
-- 🖥️ **Graphical Interface** — No command line needed, everything configurable through GUI
-- 📦 **Auto Server Download** — Select Minecraft version, auto-download Vanilla server jar from Mojang
-- 🌍 **Custom World Generation** — Input any seed and chunk radius, automatically pre-generate the world
-- ⛏️ **Ore Scanning** — Directly reads Anvil `.mca` region files, decodes NBT block states
-- 📊 **Excel Export** — Distance-sorted ore coordinates (by Euclidean distance to origin), auto-split sheets over 1M rows
-- 🔄 **Dimension Support** — Overworld, Nether, and The End (ore list auto-filters per dimension)
-- 💾 **Disk Space Guard** — Configurable minimum free disk space threshold to prevent filling the drive
-- 🔌 **RCON Integration** — Built-in RCON client with auto-reconnect for server control
+- 🖥️ **图形化界面** — 无需命令行，所有配置通过 GUI 完成
+- 📦 **自动下载服务端** — 选择 Minecraft 版本，自动从 Mojang 官方下载原版 server.jar
+- 🌍 **自定义世界生成** — 输入任意种子和区块半径，自动预生成世界
+- ⛏️ **矿物扫描** — 直接读取 Anvil `.mca` 区域文件，解码 NBT 方块状态
+- 📊 **Excel 导出** — 按到原点的三维欧氏距离排序输出坐标，超过 100 万行自动分表
+- 🔄 **多维度支持** — 主世界、下界、末地（矿物列表随维度自动切换）
+- 💾 **磁盘空间保护** — 可配置最低剩余磁盘空间阈值，防止磁盘写满
+- 🔌 **RCON 集成** — 内置 RCON 客户端，支持自动重连，稳定控制服务器
 
-## Supported Ores
+## 支持的矿物
 
-| Dimension | Ores |
-|-----------|------|
-| Overworld | Diamond, Deepslate Diamond, Iron, Deepslate Iron, Gold, Deepslate Gold, Coal, Deepslate Coal, Copper, Deepslate Copper, Redstone, Deepslate Redstone, Lapis, Deepslate Lapis, Emerald, Deepslate Emerald |
-| Nether | Ancient Debris, Nether Quartz Ore, Nether Gold Ore |
-| The End | _(no overworld ores)_ |
+| 维度 | 可扫描矿物 |
+|------|-----------|
+| 主世界 | 钻石、深板岩钻石、铁矿、深层铁矿、金矿、深层金矿、煤矿、深层煤矿、铜矿、深层铜矿、红石矿、深层红石矿、青金石矿、深层青金石矿、绿宝石矿、深层绿宝石矿 |
+| 下界 | 远古残骸、下界石英矿、下界金矿 |
+| 末地 | _（末地没有常规矿石）_ |
 
-## Requirements
+## 运行环境
 
 - Python 3.10+
-- Java Runtime Environment (JRE) — required to run the Minecraft server
-- Python packages: `nbtlib`, `openpyxl` (install via `pip install -r requirements.txt`)
+- Java 运行环境（JRE）—— 运行 Minecraft 服务器必需
+- Python 依赖：`nbtlib`、`openpyxl`（可执行 `pip install -r requirements.txt` 安装）
 
-## Usage
+## 使用方法
 
-1. Double-click `启动程序.bat` (or run `python main.py`)
-2. On first launch, select a Minecraft version in the **Server Installation Wizard** and click install
-3. Configure:
-   - **World Seed** — leave empty for random
-   - **Target Dimension** — Overworld / Nether / The End
-   - **Chunk Radius** — square area centered at origin
-   - **Origin Coordinates** — reference point for distance sorting
-   - **Output Excel** — output filename (saved in the app directory)
-   - **Select Ores** — check which ores to scan for
-   - **Disk Space Threshold** — minimum free GB (default 8, leave empty for no limit)
-4. Click **开始扫描** (Start Scan)
-5. The pipeline runs automatically: download server → start server → pre-generate chunks → stop server → scan ores → export Excel
+1. 双击 `启动程序.bat`（或运行 `python main.py`）
+2. 首次启动时，在**服务端安装向导**中选择 Minecraft 版本，点击「安装选中版本」
+3. 配置扫描参数：
+   - **世界种子** — 留空则随机生成
+   - **目标维度** — 主世界 / 下界 / 末地
+   - **区块半径** — 以原点为中心的方形区域
+   - **原点坐标 (X,Y,Z)** — 距离计算的参考点
+   - **输出 Excel** — 输出文件名（保存在程序根目录）
+   - **选择矿物** — 勾选需要扫描的矿物
+   - **磁盘空间阈值** — 最低剩余空间 GB（默认 8，留空表示不限制）
+4. 点击**开始扫描**
+5. 程序将自动执行管线：下载服务端 → 启动服务器 → 预生成区块 → 停止服务器 → 扫描矿物 → 导出 Excel
 
-## Project Structure
+## 项目结构
 
 ```
 Ore Scan App/
 ├── app/
 │   ├── __init__.py
-│   ├── constants.py      # Ore lists, dimension configs, constants
-│   ├── rcon.py           # RCON client with auto-reconnect
-│   ├── installer.py      # Minecraft server download & setup
-│   ├── world.py          # Server process, chunk pregen, Anvil scanning
-│   ├── excel.py          # Excel export with auto-split sheets
-│   └── gui.py            # Tkinter GUI (wizard + main panel + management)
-├── docs/                 # Documentation (Chinese)
-├── legacy/               # Original reference scripts
-├── Minecraft/            # Server installations (git-ignored)
-├── main.py               # Entry point
-├── requirements.txt
-└── 启动程序.bat          # Launcher script
+│   ├── constants.py      # 常量定义（矿物列表、维度配置等）
+│   ├── rcon.py           # RCON 客户端（支持自动重连）
+│   ├── installer.py      # Minecraft 服务端下载与安装
+│   ├── world.py          # 服务器进程管理、区块预生成、Anvil 文件扫描
+│   ├── excel.py          # Excel 导出（自动分表）
+│   └── gui.py            # Tkinter GUI（安装向导 + 主面板 + 版本管理）
+├── docs/                 # 说明文档
+├── legacy/               # 原始参考脚本
+├── Minecraft/            # 服务端安装目录（已 git 忽略）
+├── main.py               # 程序入口
+├── requirements.txt      # Python 依赖
+└── 启动程序.bat          # 启动脚本
 ```
 
-## How It Works
+## 技术原理
 
-1. **Server Download**: Queries Mojang's version manifest API, downloads the official `server.jar`
-2. **World Generation**: Starts the server in headless mode, uses RCON `/forceload` commands in batches to generate chunks, verifies chunk files exist on disk
-3. **Ore Scanning**: Reads `.mca` (Anvil) region files directly:
-   - Parses region headers to locate chunk sector offsets
-   - Decompresses zlib/gzip chunk NBT data
-   - Decodes packed block states using correct Minecraft bit-packing rules (no cross-long-boundary splits)
-   - Matches palette indices against target block IDs
-   - Calculates world coordinates from chunk + section + local positions
-4. **Excel Export**: Sorts ores by distance to origin, writes via openpyxl write-only mode, auto-creates new sheets when exceeding Excel's 1,048,575 row limit
+1. **服务端下载**：通过 Mojang 官方版本清单 API 获取下载地址，下载原版 server.jar
+2. **世界生成**：以无界面模式启动服务器，通过 RCON 分批发送 `/forceload` 命令加载区块，并通过读取 `.mca` 文件头验证区块已保存到磁盘
+3. **矿物扫描**：直接解析 `.mca`（Anvil）区域文件：
+   - 解析区域文件头定位区块扇区偏移
+   - 解压 zlib/gzip 压缩的区块 NBT 数据
+   - 使用正确的 Minecraft 位打包规则解码 packed block states（不跨 long 边界）
+   - 将 palette 索引与目标方块 ID 匹配
+   - 根据区块坐标 + section Y + 方块局部坐标计算世界坐标
+4. **Excel 导出**：按到原点距离排序，使用 openpyxl write-only 模式写入，超过 Excel 单表 1,048,575 行限制时自动创建新工作表
 
-## License
+## 许可证
 
-MIT License — see [LICENSE](LICENSE) file for details.
+MIT License — 详见 [LICENSE](LICENSE) 文件。
