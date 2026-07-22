@@ -37,7 +37,7 @@
     │   └── references/       # 矿物 ID 与显示名参考
     ├── main.py               # GUI 程序入口
     ├── requirements.txt      # Python 运行依赖
-    ├── 启动程序.bat          # Windows 启动器，自动安装依赖后运行 main.py
+    ├── start.bat             # Windows 启动器，创建/检查 .venv、安装依赖后运行 main.py
     ├── README.md             # 面向用户的简介和使用说明
     ├── LICENSE               # MIT License
     └── .gitignore            # 生成物、服务端目录和本地配置忽略规则
@@ -61,7 +61,7 @@
     python -m pip install -r requirements.txt
     python main.py
 
-也可以双击 启动程序.bat。批处理文件会切换到自身所在目录，检查 nbtlib 和 openpyxl 是否可导入，缺少时运行 pip install -r requirements.txt，然后启动 GUI。
+也可以双击 start.bat。脚本会切换到自身所在目录，检查 .venv 是否存在；不存在时使用系统 Python 创建。之后使用虚拟环境的 Python 检查 nbtlib 和 openpyxl，缺少时运行 pip install -r requirements.txt，然后启动 GUI。
 
 首次启动没有已安装的服务端时显示安装向导。版本清单来自：
 

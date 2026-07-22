@@ -36,7 +36,7 @@ Minecraft Ore Scan 是一个面向 Windows 的 Python/Tkinter 桌面工具，用
 
     python main.py
 
-也可以运行根目录下的 启动程序.bat。批处理文件会切换到自身所在目录，检查 nbtlib 和 openpyxl 是否可以导入，并在缺少依赖时执行 requirements.txt 安装。
+也可以运行根目录下的 start.bat。脚本会检查 .venv 是否存在；如果不存在则创建虚拟环境。随后始终使用该虚拟环境的 Python 检查 nbtlib 和 openpyxl，缺少依赖时安装 requirements.txt，依赖就绪后启动 main.py。
 
 ## 运行目录和生成文件
 
