@@ -1,13 +1,18 @@
 import urllib.request
 import json
 from pathlib import Path
-from .constants import MANIFEST_URL, RCON_PASSWORD, RCON_PORT
+from .constants import MANIFEST_URL, RCON_PASSWORD, RCON_PORT, VERSION_TYPE_OPTIONS
 
 
-def fetch_versions():
+def fetch_versions(version_type="release"):
+    valid_types = {version_type for version_type, _ in VERSION_TYPE_OPTIONS}
+    if version_type not in valid_types:
+        raise ValueError(f"不支持的版本类型: {version_type}")
+
     with urllib.request.urlopen(MANIFEST_URL, timeout=30) as resp:
         manifest = json.loads(resp.read().decode("utf-8"))
-    return manifest, [v for v in manifest["versions"] if v["type"] == "release"]
+    versions = [v for v in manifest["versions"] if v["type"] == version_type]
+    return manifest, versions
 
 
 def download_server(server_dir: Path, version_id: str, manifest: dict, progress_callback=None):

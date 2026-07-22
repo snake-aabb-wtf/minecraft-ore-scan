@@ -6,7 +6,7 @@ Minecraft Ore Scan 是一个面向 Windows 的 Python/Tkinter 桌面工具，用
 
 ## 主要能力
 
-- 从 Mojang 官方版本清单获取 release 版本，并下载对应的原版 server.jar。
+- 从 Mojang 官方版本清单获取 release 或 snapshot 版本，并下载对应的原版 server.jar。
 - 按 seed 和区块半径创建或复用服务端世界。
 - 通过本机 Source RCON 分批执行 forceload，等待目标区块写入 Anvil region 文件。
 - 直接解析 .mca 文件中的区块 payload、NBT、section、block_states.palette 和 block_states.data。
@@ -73,7 +73,7 @@ Minecraft 服务端安装目录由 GUI 自动创建。服务端世界位于具�
 
     https://launchermeta.mojang.com/mc/game/version_manifest_v2.json
 
-程序只显示 release 类型版本的前 50 项。选择版本后，程序读取该版本详情中的 server 下载地址，将 JAR 写入 Minecraft/<version>/server.jar，并生成默认的 eula.txt 和 server.properties。
+安装向导提供 Release（正式版）和 Snapshot（快照版）下拉选项，列表显示所选类型的前 50 项。选择版本后，程序读取该版本详情中的 server 下载地址，将 JAR 写入 Minecraft/<version>/server.jar，并生成默认的 eula.txt 和 server.properties。
 
 当前下载流程没有对 JAR 执行 SHA-1 校验。生产或大范围扫描前，应自行确认下载文件来源、大小和完整性。
 

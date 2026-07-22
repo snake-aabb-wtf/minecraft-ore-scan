@@ -6,7 +6,15 @@ import sys
 import os
 from pathlib import Path
 
-from .constants import ORE_OPTIONS, DIMENSIONS, RCON_PASSWORD, RCON_PORT, DIMENSION_ORES, DIMENSION_DEFAULT_ORES
+from .constants import (
+    ORE_OPTIONS,
+    DIMENSIONS,
+    VERSION_TYPE_OPTIONS,
+    RCON_PASSWORD,
+    RCON_PORT,
+    DIMENSION_ORES,
+    DIMENSION_DEFAULT_ORES,
+)
 from .rcon import RconClient
 from .installer import fetch_versions, download_server, update_server_properties, find_installed_servers
 from .world import start_server, pregenerate_chunks, get_region_dir, scan_all_regions
@@ -69,7 +77,23 @@ class OreScanGUI:
         self._install_log_sync("欢迎使用矿物扫描工具！需要先安装 Minecraft Vanilla Server。")
         self._install_log_sync("正在从 Mojang 服务器获取可用版本...")
 
-        list_frame = ttk.LabelFrame(frame, text="可用版本 (Release 正式版)", padding=10)
+        version_filter_frame = ttk.Frame(frame)
+        version_filter_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(version_filter_frame, text="可用版本").pack(side=tk.LEFT)
+
+        self.version_type_var = tk.StringVar()
+        self.version_type_combo = ttk.Combobox(
+            version_filter_frame,
+            textvariable=self.version_type_var,
+            values=[label for _, label in VERSION_TYPE_OPTIONS],
+            state="readonly",
+            width=20,
+        )
+        self.version_type_combo.current(0)
+        self.version_type_combo.bind("<<ComboboxSelected>>", self._on_version_type_changed)
+        self.version_type_combo.pack(side=tk.LEFT, padx=(8, 0))
+
+        list_frame = ttk.LabelFrame(frame, text="版本列表", padding=10)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         columns = ("version", "type", "release_date")
@@ -111,27 +135,57 @@ class OreScanGUI:
     def _load_versions(self):
         self.refresh_btn.config(state=tk.DISABLED)
         self.install_btn.config(state=tk.DISABLED)
+        self.version_type_combo.config(state="disabled")
         self.version_tree.delete(*self.version_tree.get_children())
         if hasattr(self, 'install_status_label'):
             self.install_status_label.config(text="正在获取版本列表...")
-        threading.Thread(target=self._fetch_versions, daemon=True).start()
+        version_type = self._get_selected_version_type()
+        threading.Thread(target=self._fetch_versions, args=(version_type,), daemon=True).start()
 
-    def _fetch_versions(self):
+    def _get_selected_version_type(self):
+        selected_label = self.version_type_var.get()
+        return next(
+            (version_type for version_type, label in VERSION_TYPE_OPTIONS if label == selected_label),
+            VERSION_TYPE_OPTIONS[0][0],
+        )
+
+    def _get_version_type_label(self, version_type):
+        return next(
+            (label for option_type, label in VERSION_TYPE_OPTIONS if option_type == version_type),
+            version_type,
+        )
+
+    def _on_version_type_changed(self, event=None):
+        self._load_versions()
+
+    def _fetch_versions(self, version_type):
         try:
             self._install_log("正在连接 Mojang 版本服务器...")
-            self.manifest_data, versions = fetch_versions()
-            self._install_log(f"获取成功，共 {len(versions)} 个正式版本")
+            manifest_data, versions = fetch_versions(version_type)
+            type_label = self._get_version_type_label(version_type)
+            self._install_log(f"获取成功，共 {len(versions)} 个{type_label}版本")
 
-            for v in versions[:50]:
-                self.version_tree.insert("", tk.END, values=(v["id"], v["type"], v["releaseTime"]))
+            def update_version_list():
+                self.manifest_data = manifest_data
+                for v in versions[:50]:
+                    self.version_tree.insert("", tk.END, values=(v["id"], v["type"], v["releaseTime"]))
+                display_count = min(50, len(versions))
+                self.install_btn.config(state=tk.NORMAL if versions else tk.DISABLED)
+                self.install_status_label.config(
+                    text=f"已加载 {len(versions)} 个{type_label}版本，显示前 {display_count} 个"
+                )
 
-            self.root.after(0, lambda: self.install_btn.config(state=tk.NORMAL))
-            self.root.after(0, lambda: self.install_status_label.config(text=f"已加载 {len(versions)} 个版本，请选择要安装的版本"))
+            self.root.after(0, update_version_list)
         except Exception as e:
             self._install_log(f"获取版本列表失败: {e}")
-            self.root.after(0, lambda: messagebox.showerror("错误", f"获取版本列表失败: {e}"))
+            error_message = str(e)
+            self.root.after(0, lambda: messagebox.showerror("错误", f"获取版本列表失败: {error_message}"))
         finally:
-            self.root.after(0, lambda: self.refresh_btn.config(state=tk.NORMAL))
+            self.root.after(0, self._finish_version_load)
+
+    def _finish_version_load(self):
+        self.refresh_btn.config(state=tk.NORMAL)
+        self.version_type_combo.config(state="readonly")
 
     def _start_install(self):
         sel = self.version_tree.selection()

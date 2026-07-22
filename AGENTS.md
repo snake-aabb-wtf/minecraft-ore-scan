@@ -6,7 +6,7 @@
 
 这是一个面向 Windows 的 Python/Tkinter 桌面工具，用于扫描 Minecraft Java 原版服务端生成的矿物方块。GUI 会把以下步骤串成一条流水线：
 
-1. 从 Mojang 官方版本清单获取 release 版本。
+1. 从 Mojang 官方版本清单获取 release 或 snapshot 版本。
 2. 下载指定版本的原版 server.jar，并在 Minecraft/<version>/ 下准备服务端目录。
 3. 按用户输入的 seed 启动服务端，通过本机 RCON 分批使用 forceload 预生成区块。
 4. 等待 Anvil region 文件的 location header 表明目标区块已经保存。
@@ -67,7 +67,7 @@
 
     https://launchermeta.mojang.com/mc/game/version_manifest_v2.json
 
-向导只展示 release 版本的前 50 项，但下载时使用完整 manifest 查找选中的版本。下载后的服务端目录通常为 Minecraft/<version>/，其中至少包含 server.jar、eula.txt 和 server.properties。
+向导提供 Release（正式版）和 Snapshot（快照版）选择，并展示所选类型的前 50 项；下载时使用完整 manifest 查找选中的版本。下载后的服务端目录通常为 Minecraft/<version>/，其中至少包含 server.jar、eula.txt 和 server.properties。
 
 ## 4. GUI 的真实运行流程
 
@@ -134,7 +134,7 @@ main.py 创建 tkinter.Tk，设置 Windows DPI 感知，然后实例化 OreScanG
 
 负责网络请求和服务端配置：
 
-- fetch_versions() 下载 Mojang manifest 并过滤 release。
+- fetch_versions(version_type) 下载 Mojang manifest，并按 release 或 snapshot 过滤版本。
 - download_server() 解析版本详情中的 server 下载 URL，通过 urllib.request.urlretrieve() 写入 server.jar，随后写入 EULA 和默认属性。
 - update_server_properties() 读取现有 key=value，丢弃注释/空行格式，覆盖本工具要求的属性后整体重写文件。
 - find_installed_servers() 只通过子目录中是否存在 server.jar 判断“已安装”。

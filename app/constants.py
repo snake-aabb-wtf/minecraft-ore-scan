@@ -67,6 +67,11 @@ DIMENSIONS = [
     ("minecraft:the_end", "末地"),
 ]
 
+VERSION_TYPE_OPTIONS = [
+    ("release", "Release 正式版"),
+    ("snapshot", "Snapshot 快照版"),
+]
+
 MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 
 RCON_PASSWORD = "ore_scan_local"
