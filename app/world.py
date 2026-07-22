@@ -91,6 +91,7 @@ def start_server(server_dir: Path, log_callback=None):
 
 def pregenerate_chunks(rcon, dimension: str, min_chunk: int, max_chunk: int, region_dir: Path,
                        running_check=None, log_callback=None, min_free_gb: float = None):
+    region_dir.mkdir(parents=True, exist_ok=True)
     dim_prefix = get_dimension_prefix(dimension)
     x_width, z_height = 20, 8
     x_ranges = chunk_ranges(min_chunk, max_chunk, x_width)
