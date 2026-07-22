@@ -67,7 +67,7 @@
 
     https://launchermeta.mojang.com/mc/game/version_manifest_v2.json
 
-向导提供 Release（正式版）和 Snapshot（快照版）选择，并展示所选类型的前 50 项；下载时使用完整 manifest 查找选中的版本。下载后的服务端目录通常为 Minecraft/<version>/，其中至少包含 server.jar、eula.txt 和 server.properties。
+向导提供 Release（正式版）和 Snapshot（快照版）选择，并展示所选类型的全部版本；下载时使用完整 manifest 查找选中的版本。下载后的服务端目录通常为 Minecraft/<version>/，其中至少包含 server.jar、eula.txt 和 server.properties。
 
 ## 4. GUI 的真实运行流程
 

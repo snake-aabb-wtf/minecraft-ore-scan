@@ -167,12 +167,11 @@ class OreScanGUI:
 
             def update_version_list():
                 self.manifest_data = manifest_data
-                for v in versions[:50]:
+                for v in versions:
                     self.version_tree.insert("", tk.END, values=(v["id"], v["type"], v["releaseTime"]))
-                display_count = min(50, len(versions))
                 self.install_btn.config(state=tk.NORMAL if versions else tk.DISABLED)
                 self.install_status_label.config(
-                    text=f"已加载 {len(versions)} 个{type_label}版本，显示前 {display_count} 个"
+                    text=f"已加载 {len(versions)} 个{type_label}版本"
                 )
 
             self.root.after(0, update_version_list)

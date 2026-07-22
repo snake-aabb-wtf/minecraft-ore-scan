@@ -73,7 +73,7 @@ Minecraft 服务端安装目录由 GUI 自动创建。服务端世界位于具�
 
     https://launchermeta.mojang.com/mc/game/version_manifest_v2.json
 
-安装向导提供 Release（正式版）和 Snapshot（快照版）下拉选项，列表显示所选类型的前 50 项。选择版本后，程序读取该版本详情中的 server 下载地址，将 JAR 写入 Minecraft/<version>/server.jar，并生成默认的 eula.txt 和 server.properties。
+安装向导提供 Release（正式版）和 Snapshot（快照版）下拉选项，列表显示所选类型的全部版本。选择版本后，程序读取该版本详情中的 server 下载地址，将 JAR 写入 Minecraft/<version>/server.jar，并生成默认的 eula.txt 和 server.properties。
 
 当前下载流程没有对 JAR 执行 SHA-1 校验。生产或大范围扫描前，应自行确认下载文件来源、大小和完整性。
 
