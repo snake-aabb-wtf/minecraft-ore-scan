@@ -7,6 +7,7 @@ Minecraft Ore Scan 是一个面向 Windows 的 Python/Tkinter 桌面工具，用
 ## 主要能力
 
 - 从 Mojang 官方版本清单获取 release 或 snapshot 版本，并下载对应的原版 server.jar。
+- 下载完成后使用 Mojang manifest 提供的 SHA-1 校验 server.jar；校验失败时自动清理并重试。
 - 按 seed 和区块半径创建或复用服务端世界。
 - 通过本机 Source RCON 分批执行 forceload，等待目标区块写入 Anvil region 文件。
 - 直接解析 .mca 文件中的区块 payload、NBT、section、block_states.palette 和 block_states.data。
@@ -75,7 +76,7 @@ Minecraft 服务端安装目录由 GUI 自动创建。服务端世界位于具�
 
 安装向导提供 Release（正式版）和 Snapshot（快照版）下拉选项，列表显示所选类型的全部版本。选择版本后，程序读取该版本详情中的 server 下载地址，将 JAR 写入 Minecraft/<version>/server.jar，并生成默认的 eula.txt 和 server.properties。
 
-当前下载流程没有对 JAR 执行 SHA-1 校验。生产或大范围扫描前，应自行确认下载文件来源、大小和完整性。
+下载完成后，程序会使用版本详情中 downloads.server.sha1 对 server.jar 进行流式 SHA-1 校验。校验失败时会删除 server.jar 和临时下载文件，并自动重试，最多尝试 3 次；仍然失败则终止安装。生产或大范围扫描前，仍应确认下载来源和目标版本。
 
 ### 2. 配置扫描参数
 
@@ -343,7 +344,7 @@ legacy/ 目录中的脚本保留早期固定任务和独立 CLI 实现：
 - 扫描结果依赖世界已经生成并正确保存。日志中的预生成进度不应替代对 location table 的独立核验。
 - 扫描结果是实际保存的方块状态，包含地下和不可见矿物，不等价于玩家能够直接发现的矿物。
 - server.properties 的 seed 只对新建世界有效；已有 level.dat 不会因为重新写入 level-seed 而改变。
-- 当前服务端下载不校验 SHA-1。
+- 服务端下载依赖 Mojang 版本详情中的 downloads.server.sha1；如果该元数据缺失，安装会直接失败，不会继续使用未校验的 JAR。
 - RCON 使用固定默认密码和端口，且当前实现面向本机临时使用；不要将其暴露到公网。
 - 仓库没有自动化测试套件、格式化配置、静态检查配置或 CI。修改扫描算法后应使用小型临时 world fixture 验证 region header、NBT 压缩、palette、packed long、负坐标和空结果。
 - 当没有找到矿物时，导出器会创建只有表头的 Minerals_1；当前函数返回的 worksheet 数量统计可能显示为 0，这是现有实现边界。

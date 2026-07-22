@@ -135,11 +135,11 @@ main.py 创建 tkinter.Tk，设置 Windows DPI 感知，然后实例化 OreScanG
 负责网络请求和服务端配置：
 
 - fetch_versions(version_type) 下载 Mojang manifest，并按 release 或 snapshot 过滤版本。
-- download_server() 解析版本详情中的 server 下载 URL，通过 urllib.request.urlretrieve() 写入 server.jar，随后写入 EULA 和默认属性。
+- download_server() 解析版本详情中的 server 下载 URL、大小和 SHA-1，先通过 urllib.request.urlretrieve() 写入 server.jar.part，流式校验 SHA-1 通过后再替换 server.jar，随后写入 EULA 和默认属性。
 - update_server_properties() 读取现有 key=value，丢弃注释/空行格式，覆盖本工具要求的属性后整体重写文件。
 - find_installed_servers() 只通过子目录中是否存在 server.jar 判断“已安装”。
 
-当前下载流程没有对下载的 JAR 执行 SHA-1 校验。若修改安装流程，应优先使用 Mojang manifest 中的 hash/size 元数据增加校验，并保留失败时不启动损坏服务端的行为。
+下载流程要求 Mojang manifest 提供 downloads.server.sha1。哈希不匹配时必须删除 server.jar 和临时文件并自动重试；当前最多尝试 3 次，最终失败时不得继续安装或启动未校验的服务端。
 
 ### app/rcon.py
 
@@ -314,7 +314,7 @@ legacy/actual-run/ 保存固定范围的主世界/下界预生成、钻石/远�
 
 以下是当前源码的事实，不要在修复前把它们误写成已经实现的能力：
 
-- download_server() 使用 Mojang 提供的下载地址和大小，但当前不校验 JAR SHA-1。
+- download_server() 使用 Mojang 提供的下载地址、大小和 SHA-1；缺失 SHA-1 元数据或连续校验失败时会终止安装。
 - scan_all_regions() 为覆盖边界会检查 min_chunk // 32 - 1 到 max_chunk // 32 + 1 的 region 文件，不过 scan_region() 仍会过滤到目标区块范围；这会带来额外文件检查但不会按设计把范围外区块加入结果。
 - scan_region() 可以捕获单个 region 的解析异常并返回已经收集的部分结果。GUI 当前调用 scan_all_regions() 时没有传入错误回调，因此某些损坏 region 的错误可能只表现为结果偏少。
 - 空矿物结果会产生一个只有表头的 Minerals_1，但 export_to_excel() 返回的 worksheet 数量为 0；涉及导出统计的修改必须覆盖此边界。

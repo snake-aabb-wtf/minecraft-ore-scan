@@ -1,7 +1,11 @@
-import urllib.request
+import hashlib
 import json
+import urllib.request
 from pathlib import Path
 from .constants import MANIFEST_URL, RCON_PASSWORD, RCON_PORT, VERSION_TYPE_OPTIONS
+
+
+SERVER_DOWNLOAD_ATTEMPTS = 3
 
 
 def fetch_versions(version_type="release"):
@@ -15,9 +19,25 @@ def fetch_versions(version_type="release"):
     return manifest, versions
 
 
+def _sha1_file(path: Path) -> str:
+    digest = hashlib.sha1()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _remove_if_exists(path: Path):
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def download_server(server_dir: Path, version_id: str, manifest: dict, progress_callback=None):
     server_dir.mkdir(parents=True, exist_ok=True)
     server_jar = server_dir / "server.jar"
+    partial_jar = server_dir / "server.jar.part"
 
     version_info = next((v for v in manifest["versions"] if v["id"] == version_id), None)
     if not version_info:
@@ -26,17 +46,43 @@ def download_server(server_dir: Path, version_id: str, manifest: dict, progress_
     with urllib.request.urlopen(version_info["url"], timeout=30) as resp:
         version_data = json.loads(resp.read().decode("utf-8"))
 
-    server_url = version_data["downloads"]["server"]["url"]
-    server_size = version_data["downloads"]["server"]["size"]
+    server_download = version_data.get("downloads", {}).get("server")
+    if not server_download:
+        raise RuntimeError(f"版本 {version_id} 没有可用的 server.jar 下载信息")
 
-    if progress_callback:
-        def reporthook(block_num, block_size, total_size):
-            downloaded = block_num * block_size
-            pct = min(100, int(downloaded * 100 / total_size))
-            progress_callback(pct, downloaded, total_size)
-        urllib.request.urlretrieve(server_url, server_jar, reporthook=reporthook)
-    else:
-        urllib.request.urlretrieve(server_url, server_jar)
+    server_url = server_download["url"]
+    server_size = server_download["size"]
+    expected_sha1 = server_download.get("sha1")
+    if not expected_sha1:
+        raise RuntimeError(f"版本 {version_id} 的 server.jar 缺少 Mojang SHA-1 校验值")
+
+    for attempt in range(1, SERVER_DOWNLOAD_ATTEMPTS + 1):
+        _remove_if_exists(partial_jar)
+        try:
+            if progress_callback:
+                def reporthook(block_num, block_size, total_size):
+                    downloaded = block_num * block_size
+                    pct = min(100, int(downloaded * 100 / total_size))
+                    progress_callback(pct, downloaded, total_size)
+                urllib.request.urlretrieve(server_url, partial_jar, reporthook=reporthook)
+            else:
+                urllib.request.urlretrieve(server_url, partial_jar)
+
+            actual_sha1 = _sha1_file(partial_jar)
+            if actual_sha1.lower() != expected_sha1.strip().lower():
+                _remove_if_exists(server_jar)
+                raise RuntimeError(
+                    f"server.jar SHA-1 校验失败 (expected={expected_sha1}, actual={actual_sha1})"
+                )
+
+            partial_jar.replace(server_jar)
+            break
+        except Exception as e:
+            _remove_if_exists(partial_jar)
+            if attempt == SERVER_DOWNLOAD_ATTEMPTS:
+                raise RuntimeError(
+                    f"server.jar 下载或 SHA-1 校验失败，已尝试 {SERVER_DOWNLOAD_ATTEMPTS} 次: {e}"
+                ) from e
 
     write_eula(server_dir)
     write_default_properties(server_dir)
