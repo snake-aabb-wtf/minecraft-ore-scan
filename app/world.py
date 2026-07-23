@@ -63,13 +63,14 @@ def saved_count(region_dir: Path, xs: int, xe: int, zs: int, ze: int) -> int:
 
 
 def start_server(server_dir: Path, log_callback=None):
+    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     proc = subprocess.Popen(
         ["java", "-Xmx2G", "-Xms1G", "-jar", "server.jar", "nogui"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         stdin=subprocess.PIPE,
         cwd=str(server_dir),
-        creationflags=subprocess.CREATE_NO_WINDOW,
+        creationflags=creation_flags,
         text=True,
         encoding="utf-8",
         errors="replace",

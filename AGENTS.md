@@ -38,6 +38,7 @@
     ├── main.py               # GUI 程序入口
     ├── requirements.txt      # Python 运行依赖
     ├── start.bat             # Windows 启动器，创建/检查 .venv、安装依赖后运行 main.py
+    ├── start.sh              # Linux 启动器，创建/检查 .venv、安装依赖后运行 main.py
     ├── README.md             # 面向用户的简介和使用说明
     ├── LICENSE               # MIT License
     └── .gitignore            # 生成物、服务端目录和本地配置忽略规则
@@ -48,7 +49,7 @@
 
 ### 3.1 必需环境
 
-- Windows 是当前支持的主要平台。world.start_server() 使用 subprocess.CREATE_NO_WINDOW，并假设 java 可直接在 PATH 中调用。
+- Windows 是当前支持的主要平台，同时提供 Linux 启动脚本。world.start_server() 仅在 Windows 使用 subprocess.CREATE_NO_WINDOW，其他系统使用默认进程创建参数，并假设 java 可直接在 PATH 中调用。
 - Python 3.10 或更高版本。
 - Java JRE/JDK，Minecraft 原版服务端启动和世界生成都需要它。
 - Python 依赖：nbtlib>=2.0.0、openpyxl>=3.1.0。
@@ -62,6 +63,8 @@
     python main.py
 
 也可以双击 start.bat。脚本会切换到自身所在目录，检查 .venv 是否存在；不存在时使用系统 Python 创建。之后使用虚拟环境的 Python 检查 nbtlib 和 openpyxl，缺少时运行 pip install -r requirements.txt，然后启动 GUI。
+
+Linux 用户可以在仓库根目录执行 ./start.sh。脚本使用 python3 创建或检查 .venv，检查并安装缺少的依赖，然后启动 GUI。
 
 首次启动没有已安装的服务端时显示安装向导。版本清单来自：
 

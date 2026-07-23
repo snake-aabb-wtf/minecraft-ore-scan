@@ -19,15 +19,21 @@ Minecraft Ore Scan 是一个面向 Windows 的 Python/Tkinter 桌面工具，用
 
 ## 系统要求
 
-当前实现以 Windows 为目标平台。
+当前实现以 Windows 为主要平台，同时提供 Linux 启动脚本。
 
-- Windows。
+- Windows 或 Linux。
 - Python 3.10 或更高版本。
 - Java JRE 或 JDK，并且 java 命令位于 PATH 中。
 - 支持 Tkinter 的 Python 安装。
 - Python 依赖：
   - nbtlib 2.0.0 或更高版本
   - openpyxl 3.1.0 或更高版本
+
+## 快速启动
+
+Windows 用户将项目完整解压后，直接双击项目根目录下的 `start.bat` 即可启动程序。Linux 用户在项目根目录执行 `./start.sh` 即可启动；如果脚本没有执行权限，先执行 `chmod +x start.sh`。两个启动脚本都会自动检查并创建 `.venv` 虚拟环境，安装缺失的 Python 依赖，然后使用虚拟环境启动 `main.py`。
+
+首次启动前请确认 Python 3.10 或更高版本、Java JRE 或 JDK 已安装，并且对应的 `python`、`python3` 和 `java` 命令位于 PATH 中。Linux 用户还需要安装带 Tkinter 支持的 Python 软件包。
 
 安装依赖：
 
@@ -36,8 +42,6 @@ Minecraft Ore Scan 是一个面向 Windows 的 Python/Tkinter 桌面工具，用
 启动程序：
 
     python main.py
-
-也可以运行根目录下的 start.bat。脚本会检查 .venv 是否存在；如果不存在则创建虚拟环境。随后始终使用该虚拟环境的 Python 检查 nbtlib 和 openpyxl，缺少依赖时安装 requirements.txt，依赖就绪后启动 main.py。
 
 ## 运行目录和生成文件
 
