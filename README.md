@@ -363,7 +363,7 @@ legacy/ 目录中的脚本保留早期固定任务和独立 CLI 实现：
 - 服务端下载依赖 Mojang 版本详情中的 downloads.server.sha1；如果该元数据缺失，安装会直接失败，不会继续使用未校验的 JAR。
 - RCON 使用固定默认密码和端口，且当前实现面向本机临时使用；不要将其暴露到公网。
 - 卸载服务端是递归删除操作，只能删除 Minecraft/ 下的直接子目录；确认前应确保该版本中的世界和备份不再需要。
-- 仓库没有自动化测试套件、格式化配置、静态检查配置或 CI。修改扫描算法后应使用小型临时 world fixture 验证 region header、NBT 压缩、palette、packed long、负坐标和空结果。
+- GitHub Actions CI 会在 Ubuntu + Temurin Java 21 中执行真实服务端冒烟测试：下载 Mojang 1.20.5 服务端并校验 SHA-1、启动 RCON、预生成一个区块、扫描 NBT 并导出/重读 Excel。测试失败时会上传不包含 server.properties 的服务端诊断日志。
 - 当没有找到矿物时，导出器会创建只有表头的 Minerals_1；当前函数返回的 worksheet 数量统计可能显示为 0，这是现有实现边界。
 
 ## 开发和验证
@@ -373,6 +373,11 @@ legacy/ 目录中的脚本保留早期固定任务和独立 CLI 实现：
     python -m compileall -q .
     python -c "import tkinter, nbtlib, openpyxl; print('imports: OK')"
     git diff --check
+
+完整的服务端闭环测试需要网络和 Java 21。GitHub Actions 会在 push 到 master、Pull Request 和手动触发时执行；本地 PowerShell 可使用：
+
+    $env:RUN_MINECRAFT_E2E="1"
+    python -m unittest discover -s tests -p "test_*.py" -v
 
 修改范围建议：
 

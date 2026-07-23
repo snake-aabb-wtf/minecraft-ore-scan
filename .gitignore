@@ -12,6 +12,7 @@ Minecraft/
 world/
 world_backup_*/
 logs/
+ci-artifacts/
 *.log
 
 *.xlsx

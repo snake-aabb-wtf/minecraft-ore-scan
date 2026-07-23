@@ -20,6 +20,9 @@
 实际 Git 仓库根目录是当前文件所在目录 minecraft-ore-scan，不是其父目录 F:\Scan Ore。
 
     minecraft-ore-scan/
+    ├── .github/
+    │   └── workflows/
+    │       └── ci.yml        # GitHub Actions 真实服务端全流程冒烟测试
     ├── app/
     │   ├── __init__.py       # 包导出
     │   ├── constants.py      # 矿物、维度、Mojang API、RCON 常量
@@ -37,6 +40,8 @@
     │   ├── generic/          # 早期通用 CLI 预生成/扫描脚本
     │   └── references/       # 矿物 ID 与显示名参考
     ├── main.py               # GUI 程序入口
+    ├── tests/
+    │   └── test_end_to_end_smoke.py # 受环境变量保护的真实服务端闭环测试
     ├── requirements.txt      # Python 运行依赖
     ├── start.bat             # Windows 启动器，创建/检查 .venv、安装依赖后运行 main.py
     ├── start.sh              # Linux 启动器，创建/检查 .venv、安装依赖后运行 main.py
@@ -307,12 +312,21 @@ legacy/actual-run/ 保存固定范围的主世界/下界预生成、钻石/远�
 
 ## 9. 验证方式
 
-仓库当前没有 pytest/unittest 测试套件、formatter、linter 或 CI 配置。每次修改至少执行以下检查：
+仓库使用标准库 unittest，并在 GitHub Actions 中提供真实服务端的全流程冒烟测试；当前仍没有 formatter 或 linter 配置。每次修改至少执行以下检查：
 
     python -m compileall -q .
     python -c "import tkinter, nbtlib, openpyxl; print('imports: OK')"
     git diff --check
     git status --short
+
+`tests/test_end_to_end_smoke.py` 默认跳过，防止普通本地测试意外下载并启动服务端。GitHub Actions 在 push 到 master、Pull Request 和手动触发时设置 `RUN_MINECRAFT_E2E=1`，以 Ubuntu、Python 3.11 和 Temurin Java 21 执行以下实际路径：下载 Mojang 1.20.5 服务端、独立核对 SHA-1、发现并精确选择 Java 21、通过 RCON 启动、预生成一个区块、停止服务端、扫描 Anvil/NBT、导出 Excel 并用 openpyxl 重读。固定测试版本的 Mojang `javaVersion.majorVersion` 必须与工作流中安装的 Java 主版本一致。
+
+本地执行真实闭环测试需要网络与 Java 21：
+
+    $env:RUN_MINECRAFT_E2E="1"
+    python -m unittest discover -s tests -p "test_*.py" -v
+
+测试失败时可以设置 `CI_SMOKE_ARTIFACT_DIR` 保存诊断日志。诊断文件不得复制 `server.properties`，也不得输出 RCON 密码。
 
 针对不同改动增加相应检查：
 
@@ -320,6 +334,7 @@ legacy/actual-run/ 保存固定范围的主世界/下界预生成、钻石/远�
 - 修改 installer.py/rcon.py：做网络失败、认证失败、超时和断线重连的人工或 mock 测试；不要以真实 Mojang 下载作为唯一快速测试。
 - 修改 world.py：使用小型临时 world fixture，验证 .mca header、NBT 解压、palette、packed long、负坐标和扫描范围；不要提交真实大型世界。
 - 修改 excel.py：验证零结果、单行、跨 worksheet 边界、排序和输出文件能否被 openpyxl.load_workbook() 重新打开。
+- 修改 installer.py、java_runtime.py、rcon.py、world.py 或 excel.py 后，在具备网络和 Java 21 的环境运行全流程冒烟测试；涉及固定测试版本或工作流 Java 版本时，同步核对 Mojang 元数据。
 - 修改 gui.py：先做 import/compile 检查，再在具备 Java 的 Windows 环境手动验证安装、切换维度、取消和正常完成流程。没有 Java 或服务端时只能做静态检查，不能宣称端到端通过。
 - 必要时可进行小范围手动验收：安装一个已知 Minecraft release，使用很小的 radius，确认服务端停止后才开始扫描，并检查输出 Excel 的首行、总行数、sheet 数和坐标范围。
 
