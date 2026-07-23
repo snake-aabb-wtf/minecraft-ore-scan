@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 import urllib.request
 from pathlib import Path
 from .constants import MANIFEST_URL, RCON_PASSWORD, RCON_PORT, VERSION_TYPE_OPTIONS
@@ -139,3 +140,15 @@ def find_installed_servers(minecraft_dir: Path):
             if d.is_dir() and (d / "server.jar").exists():
                 servers.append(d)
     return servers
+
+
+def uninstall_server(server_dir: Path, minecraft_dir: Path):
+    minecraft_root = minecraft_dir.resolve()
+    target = server_dir.resolve()
+
+    if server_dir.is_symlink() or target.parent != minecraft_root:
+        raise ValueError("只能卸载 Minecraft 目录下的直接子目录")
+    if not target.exists() or not target.is_dir():
+        raise FileNotFoundError(f"服务端目录不存在: {server_dir}")
+
+    shutil.rmtree(target)

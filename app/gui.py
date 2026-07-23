@@ -16,7 +16,13 @@ from .constants import (
     DIMENSION_DEFAULT_ORES,
 )
 from .rcon import RconClient
-from .installer import fetch_versions, download_server, update_server_properties, find_installed_servers
+from .installer import (
+    fetch_versions,
+    download_server,
+    update_server_properties,
+    find_installed_servers,
+    uninstall_server,
+)
 from .world import start_server, pregenerate_chunks, get_region_dir, scan_all_regions
 from .excel import export_to_excel
 
@@ -118,6 +124,9 @@ class OreScanGUI:
 
         self.install_btn = ttk.Button(btn_frame, text="安装选中版本", command=self._start_install, state=tk.DISABLED)
         self.install_btn.pack(side=tk.LEFT, padx=5)
+
+        if find_installed_servers(self.minecraft_dir):
+            ttk.Button(btn_frame, text="管理已有", command=self._show_server_manager).pack(side=tk.RIGHT, padx=5)
 
         self._install_progress = ttk.Progressbar(frame, mode='determinate')
         self._install_progress.pack(fill=tk.X, pady=(10, 0))
@@ -314,6 +323,10 @@ class OreScanGUI:
         self._log_sync("准备就绪，请配置参数后点击「开始扫描」")
 
     def _show_server_manager(self):
+        if self.running:
+            messagebox.showwarning("无法管理服务端", "扫描正在运行，请先停止扫描后再卸载服务端。")
+            return
+
         servers = find_installed_servers(self.minecraft_dir)
         win = tk.Toplevel(self.root)
         win.title("服务端管理")
@@ -351,7 +364,42 @@ class OreScanGUI:
             win.destroy()
             self._show_install_page()
 
+        def uninstall_selected():
+            sel = lb.curselection()
+            if not sel:
+                messagebox.showwarning("提示", "请先选择要卸载的服务端")
+                return
+
+            server_dir = servers[sel[0]]
+            if not messagebox.askyesno(
+                "确认卸载",
+                f"即将卸载服务端 {server_dir.name}\n"
+                f"将删除整个目录及其中的世界、备份和配置：\n{server_dir}\n\n"
+                "此操作不可恢复，是否继续？",
+            ):
+                return
+
+            try:
+                uninstall_server(server_dir, self.minecraft_dir)
+            except Exception as e:
+                messagebox.showerror("卸载失败", f"卸载服务端失败: {e}")
+                return
+
+            remaining = find_installed_servers(self.minecraft_dir)
+            if server_dir == self.current_server_dir:
+                if remaining:
+                    self.current_server_dir = remaining[0]
+                    win.destroy()
+                    self._show_main_scan_page()
+                else:
+                    self.current_server_dir = None
+                    win.destroy()
+                    self._show_install_page()
+            else:
+                win.destroy()
+
         ttk.Button(btn_frame, text="使用选中", command=use_selected).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="卸载选中", command=uninstall_selected).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="安装新版本", command=install_new).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="关闭", command=win.destroy).pack(side=tk.RIGHT, padx=5)
 

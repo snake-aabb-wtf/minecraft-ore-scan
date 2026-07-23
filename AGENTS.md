@@ -78,7 +78,7 @@ main.py 创建 tkinter.Tk，设置 Windows DPI 感知，然后实例化 OreScanG
 - 打包运行时：使用 sys.executable 所在目录。
 - 源码运行时：使用仓库根目录。
 
-所以服务端目录是 <程序目录>/Minecraft，Excel 输出目录是 <程序目录>，不是当前 PowerShell 的任意工作目录。current_server_dir 指向具体版本目录。
+所以服务端目录是 <程序目录>/Minecraft，Excel 输出目录是 <程序目录>，不是当前 PowerShell 的任意工作目录。current_server_dir 指向具体版本目录。主界面的服务端管理窗口可以切换、安装或卸载版本；安装向导仅在发现已有版本时显示“管理已有”入口。
 
 启动时如果 Minecraft 下存在任何包含 server.jar 的子目录，就选取发现列表中的第一个作为当前服务端；否则显示安装页。服务端管理页可以在已发现的目录之间切换，或回到安装页安装新版本。
 
@@ -138,6 +138,7 @@ main.py 创建 tkinter.Tk，设置 Windows DPI 感知，然后实例化 OreScanG
 - download_server() 解析版本详情中的 server 下载 URL、大小和 SHA-1，先通过 urllib.request.urlretrieve() 写入 server.jar.part，流式校验 SHA-1 通过后再替换 server.jar，随后写入 EULA 和默认属性。
 - update_server_properties() 读取现有 key=value，丢弃注释/空行格式，覆盖本工具要求的属性后整体重写文件。
 - find_installed_servers() 只通过子目录中是否存在 server.jar 判断“已安装”。
+- uninstall_server() 只允许递归删除 Minecraft 目录下的直接子目录，避免把仓库或目录外路径作为卸载目标。
 
 下载流程要求 Mojang manifest 提供 downloads.server.sha1。哈希不匹配时必须删除 server.jar 和临时文件并自动重试；当前最多尝试 3 次，最终失败时不得继续安装或启动未校验的服务端。
 
@@ -260,6 +261,7 @@ legacy/actual-run/ 保存固定范围的主世界/下界预生成、钻石/远�
 - 预生成进度日志不能代替最终完整性检查。需要通过每个目标区块的 location entry 重新统计缺失数。
 - 必须在服务端停止并完成保存后扫描，避免读取正在写入的压缩 payload。
 - 生成世界会产生 world_backup_<timestamp>；删除或清理备份前必须得到明确授权。
+- 卸载服务端会递归删除选中版本目录，包括 server.jar、world/、world_backup_*/ 和服务端配置；GUI 在确认前会提示该范围。
 - 当前服务端默认设置 online-mode=false、开启 RCON，并使用固定密码和端口。这只适合本机临时扫描；不要将该服务端暴露到公网。
 - 下载、服务端启动和输出文件写入都可能产生部分文件。失败恢复时先确认目标路径和进程状态，不要盲目删除整个 Minecraft/ 或仓库目录。
 - 任何新的临时文件、报告或 Excel 输出都应保持在 .gitignore 覆盖范围内，除非它是明确要提交的测试 fixture 或文档示例。
