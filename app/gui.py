@@ -4,12 +4,14 @@ import threading
 import time
 import sys
 import os
+import webbrowser
 from pathlib import Path
 
 from .constants import (
     ORE_OPTIONS,
     DIMENSIONS,
     VERSION_TYPE_OPTIONS,
+    ADOPTIUM_RELEASES_URL,
     RCON_PASSWORD,
     RCON_PORT,
     DIMENSION_ORES,
@@ -21,10 +23,16 @@ from .installer import (
     download_server,
     update_server_properties,
     find_installed_servers,
+    get_server_java_requirement,
     uninstall_server,
 )
+from .java_runtime import find_java_runtimes, select_java_runtime, format_java_runtimes
 from .world import start_server, pregenerate_chunks, get_region_dir, scan_all_regions
 from .excel import export_to_excel
+
+
+class JavaCompatibilityError(RuntimeError):
+    pass
 
 
 class OreScanGUI:
@@ -249,7 +257,26 @@ class OreScanGUI:
 
         top_frame = ttk.Frame(frame)
         top_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(top_frame, text=f"当前服务端: {self.current_server_dir.name}", font=("Microsoft YaHei UI", 12, "bold")).pack(side=tk.LEFT)
+
+        server_info_frame = ttk.Frame(top_frame)
+        server_info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(
+            server_info_frame,
+            text=f"当前服务端: {self.current_server_dir.name}",
+            font=("Microsoft YaHei UI", 12, "bold"),
+        ).pack(anchor=tk.W)
+        java_status_frame = ttk.Frame(server_info_frame)
+        java_status_frame.pack(anchor=tk.W, pady=(2, 0))
+        self.java_status_label = ttk.Label(
+            java_status_frame,
+            text="Java: 正在检测 Mojang 要求和本机运行时...",
+            foreground="gray",
+        )
+        self.java_status_label.pack(side=tk.LEFT)
+        self.install_java_btn = ttk.Button(
+            java_status_frame,
+            command=self._open_adoptium_releases,
+        )
         ttk.Button(top_frame, text="管理服务端", command=self._show_server_manager).pack(side=tk.RIGHT)
 
         config_frame = ttk.LabelFrame(frame, text="扫描配置", padding=10)
@@ -321,6 +348,77 @@ class OreScanGUI:
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self._log_sync(f"服务端目录: {self.current_server_dir}")
         self._log_sync("准备就绪，请配置参数后点击「开始扫描」")
+        self._refresh_java_status()
+
+    def _resolve_java_runtime(self, server_dir):
+        requirement = get_server_java_requirement(server_dir)
+        runtimes = find_java_runtimes()
+        selected_runtime = select_java_runtime(requirement.major_version, runtimes)
+        return requirement, selected_runtime, runtimes
+
+    def _java_mismatch_message(self, requirement, runtimes):
+        component_text = f" ({requirement.component})" if requirement.component else ""
+        detected = format_java_runtimes(runtimes)
+        return (
+            f"服务端 {requirement.version_id} 需要 Java {requirement.major_version}{component_text}，"
+            f"但未检测到匹配的 Java 运行时。\n\n已检测到：{detected}\n\n"
+            f"请安装 Java {requirement.major_version} JDK 或 JRE 后重试。"
+        )
+
+    def _open_adoptium_releases(self):
+        webbrowser.open(ADOPTIUM_RELEASES_URL, new=2)
+
+    def _set_install_java_button(self, required_major_version=None):
+        button = getattr(self, "install_java_btn", None)
+        if not button or not button.winfo_exists():
+            return
+
+        if required_major_version is None:
+            button.pack_forget()
+            return
+
+        button.config(text=f"安装 Java {required_major_version}")
+        if not button.winfo_manager():
+            button.pack(side=tk.LEFT, padx=(8, 0))
+
+    def _refresh_java_status(self):
+        server_dir = self.current_server_dir
+        if not server_dir:
+            return
+
+        def check_java_status():
+            try:
+                requirement, selected_runtime, _ = self._resolve_java_runtime(server_dir)
+                if selected_runtime:
+                    text = (
+                        f"Java: 服务端需要 Java {requirement.major_version}，"
+                        f"将使用 Java {selected_runtime.version_text}"
+                    )
+                    foreground = "dark green"
+                    required_major_version = None
+                else:
+                    text = (
+                        f"Java 不匹配: 服务端需要 Java {requirement.major_version}，"
+                        "不会使用其他 Java 版本"
+                    )
+                    foreground = "firebrick"
+                    required_major_version = requirement.major_version
+            except Exception as e:
+                text = f"Java 警告: 无法确认服务端 Java 要求: {e}"
+                foreground = "firebrick"
+                required_major_version = None
+
+            def update_status():
+                if self.current_server_dir != server_dir:
+                    return
+                label = getattr(self, "java_status_label", None)
+                if label and label.winfo_exists():
+                    label.config(text=text, foreground=foreground)
+                self._set_install_java_button(required_major_version)
+
+            self.root.after(0, update_status)
+
+        threading.Thread(target=check_java_status, daemon=True).start()
 
     def _show_server_manager(self):
         if self.running:
@@ -527,6 +625,20 @@ class OreScanGUI:
         output_dir = self.app_dir
         try:
             server_dir = config["server_dir"]
+            self._log("检查 Mojang Java 运行时要求...")
+            try:
+                requirement, java_runtime, runtimes = self._resolve_java_runtime(server_dir)
+            except Exception as e:
+                raise JavaCompatibilityError(f"无法确认服务端 Java 要求: {e}") from e
+
+            if not java_runtime:
+                raise JavaCompatibilityError(self._java_mismatch_message(requirement, runtimes))
+
+            self._log(
+                f"服务端 {requirement.version_id} 需要 Java {requirement.major_version}，"
+                f"将使用 Java {java_runtime.version_text}: {java_runtime.executable}"
+            )
+            self.root.after(0, self._refresh_java_status)
             os.chdir(server_dir)
             self._log(f"服务端工作目录: {server_dir}")
             self._log(f"Excel 输出目录: {output_dir}")
@@ -549,7 +661,11 @@ class OreScanGUI:
                     self._log("检测到已有世界，将复用该世界（未指定新种子）")
 
             self._log("启动 Minecraft 服务器...")
-            self.server_process = start_server(server_dir, log_callback=lambda l: self._log(f"[Server] {l}"))
+            self.server_process = start_server(
+                server_dir,
+                java_executable=java_runtime.executable,
+                log_callback=lambda l: self._log(f"[Server] {l}"),
+            )
 
             self._log("等待服务器启动（约30-120秒）...")
             rcon = None
@@ -648,11 +764,19 @@ class OreScanGUI:
             self._log(f"✓ 全部完成！{rows_count} 条数据写入 {sheets_count} 个工作表。")
             self.root.after(0, lambda: messagebox.showinfo("完成", f"扫描完成！\n找到 {rows_count} 个矿物\n结果已保存到: {output_path.resolve()}"))
 
+        except JavaCompatibilityError as e:
+            error_message = str(e)
+            self._log(f"✗ Java 警告: {error_message}")
+            self.root.after(
+                0,
+                lambda: messagebox.showwarning("Java 版本警告", error_message),
+            )
         except Exception as e:
-            self._log(f"✗ 错误: {e}")
+            error_message = str(e)
+            self._log(f"✗ 错误: {error_message}")
             import traceback
             self._log(traceback.format_exc())
-            self.root.after(0, lambda: messagebox.showerror("错误", str(e)))
+            self.root.after(0, lambda: messagebox.showerror("错误", error_message))
         finally:
             os.chdir(original_cwd)
             self.running = False

@@ -26,6 +26,7 @@
     │   ├── excel.py          # GUI 使用的 Excel 导出器
     │   ├── gui.py            # Tkinter 安装向导、扫描面板、服务端管理
     │   ├── installer.py      # 版本清单、server.jar 下载、服务端属性
+    │   ├── java_runtime.py   # 本机 Java 发现、版本解析和精确选择
     │   ├── rcon.py           # 带重连的 Source RCON 客户端
     │   └── world.py          # 服务端进程、预生成、Anvil/NBT 扫描
     ├── docs/
@@ -49,9 +50,9 @@
 
 ### 3.1 必需环境
 
-- Windows 是当前支持的主要平台，同时提供 Linux 启动脚本。world.start_server() 仅在 Windows 使用 subprocess.CREATE_NO_WINDOW，其他系统使用默认进程创建参数，并假设 java 可直接在 PATH 中调用。
+- Windows 是当前支持的主要平台，同时提供 Linux 启动脚本。world.start_server() 仅在 Windows 使用 subprocess.CREATE_NO_WINDOW，其他系统使用默认进程创建参数。Java 发现会检查 JAVA_HOME、PATH、Windows 注册表和常见安装目录，或 Linux alternatives/JVM 目录，不应假设只有 PATH 默认 java 可用。
 - Python 3.10 或更高版本。
-- Java JRE/JDK，Minecraft 原版服务端启动和世界生成都需要它。
+- Java JRE/JDK，Minecraft 原版服务端启动和世界生成都需要它。运行时由 Mojang 版本详情的 javaVersion.majorVersion 决定，不能维护一张静态版本映射表替代官方数据。
 - Python 依赖：nbtlib>=2.0.0、openpyxl>=3.1.0。
 - GUI 使用标准库 Tkinter；Windows 的 Python 安装应包含 Tk 支持。
 
@@ -83,7 +84,7 @@ main.py 创建 tkinter.Tk，设置 Windows DPI 感知，然后实例化 OreScanG
 
 所以服务端目录是 <程序目录>/Minecraft，Excel 输出目录是 <程序目录>，不是当前 PowerShell 的任意工作目录。current_server_dir 指向具体版本目录。主界面的服务端管理窗口可以切换、安装或卸载版本；安装向导仅在发现已有版本时显示“管理已有”入口。
 
-启动时如果 Minecraft 下存在任何包含 server.jar 的子目录，就选取发现列表中的第一个作为当前服务端；否则显示安装页。服务端管理页可以在已发现的目录之间切换，或回到安装页安装新版本。
+启动时如果 Minecraft 下存在任何包含 server.jar 的子目录，就选取发现列表中的第一个作为当前服务端；否则显示安装页。服务端管理页可以在已发现的目录之间切换，或回到安装页安装新版本。主扫描页会异步读取当前服务端的 Mojang Java 要求、检测本机 Java，并显示可用性状态；扫描开始前必须再次执行相同检查。缺少精确匹配版本时状态文字必须为红色，并显示打开 Adoptium Temurin 发行版页的安装按钮。
 
 ### 4.2 扫描参数
 
@@ -103,19 +104,21 @@ main.py 创建 tkinter.Tk，设置 Windows DPI 感知，然后实例化 OreScanG
 
 扫描线程执行下列操作，Tk 控件更新通过 root.after() 回到 GUI 线程：
 
-1. 保存原始当前目录，并切换到具体服务端目录。服务端相对路径、world/ 和日志都以该目录为基准。
-2. 检查 server.jar 是否存在。
-3. 更新 server.properties：写入 level-seed、开启 RCON、设置固定本机密码/端口，并将 online-mode 设为 false。
-4. 如果已有 world/ 且 seed 非空，则把它重命名为 world_backup_<Unix 时间戳>；如果 seed 为空，则复用已有世界。server.properties 中的 seed 不会覆盖已有 level.dat 的世界 seed。
-5. 使用 Java 启动：
+1. 从服务端目录的 .ore-scan-server.json 读取 Java 要求；没有缓存时从 Mojang 版本详情获取 javaVersion 并缓存。
+2. 枚举本机 Java，选择与 javaVersion.majorVersion 精确匹配的可执行文件。不存在匹配项时显示警告并停止，不得回退到任意 PATH Java，也不得修改 world/ 或 server.properties。
+3. 保存原始当前目录，并切换到具体服务端目录。服务端相对路径、world/ 和日志都以该目录为基准。
+4. 检查 server.jar 是否存在。
+5. 更新 server.properties：写入 level-seed、开启 RCON、设置固定本机密码/端口，并将 online-mode 设为 false。
+6. 如果已有 world/ 且 seed 非空，则把它重命名为 world_backup_<Unix 时间戳>；如果 seed 为空，则复用已有世界。server.properties 中的 seed 不会覆盖已有 level.dat 的世界 seed。
+7. 使用选中的 Java 可执行文件启动：
 
-       java -Xmx2G -Xms1G -jar server.jar nogui
+       <java_executable> -Xmx2G -Xms1G -jar server.jar nogui
 
-6. 最多等待约 180 次轮询，每次间隔 3 秒。RCON 连续成功至少两次后，发送 seed 验证服务端可用，并额外等待 15 秒稳定服务端。
-7. 调用 pregenerate_chunks()。每批默认 20×8=160 个区块，低于 Minecraft /forceload 的 256 区块限制。流程是加入强制加载、周期性 save-all flush、轮询 region location header、移除强制加载。
-8. 预生成完成后再次保存，发送 stop，等待服务端退出；服务端没有按时退出时会被终止。
-9. 调用 scan_all_regions() 扫描目标区块，然后调用 export_to_excel() 排序并写出 Excel。
-10. 无论成功、异常还是取消，恢复原始当前目录，停止/清理服务端进程并恢复按钮状态。
+8. 最多等待约 180 次轮询，每次间隔 3 秒。RCON 连续成功至少两次后，发送 seed 验证服务端可用，并额外等待 15 秒稳定服务端。
+9. 调用 pregenerate_chunks()。每批默认 20×8=160 个区块，低于 Minecraft /forceload 的 256 区块限制。流程是加入强制加载、周期性 save-all flush、轮询 region location header、移除强制加载。
+10. 预生成完成后再次保存，发送 stop，等待服务端退出；服务端没有按时退出时会被终止。
+11. 调用 scan_all_regions() 扫描目标区块，然后调用 export_to_excel() 排序并写出 Excel。
+12. 无论成功、异常还是取消，恢复原始当前目录，停止/清理服务端进程并恢复按钮状态。
 
 点击“停止”只会设置取消标志并异步尝试 RCON stop；当前批次的阻塞操作结束前，UI 不能立即保证服务端已经退出。开发时必须保留这种有序关闭路径，避免 Java 仍在写 region 文件时开始扫描。
 
@@ -129,7 +132,7 @@ main.py 创建 tkinter.Tk，设置 Windows DPI 感知，然后实例化 OreScanG
 - OVERWORLD_ORES、NETHER_ORES、END_ORES 是按维度筛选后的列表。
 - DIMENSION_DEFAULT_ORES 控制 GUI 初始勾选项。
 - DIMENSIONS 控制维度选择项。
-- MANIFEST_URL、RCON_PASSWORD、RCON_PORT 控制服务端安装和连接。
+- MANIFEST_URL、ADOPTIUM_RELEASES_URL、RCON_PASSWORD、RCON_PORT 控制服务端安装、Java 安装入口和连接。
 
 匹配必须使用原始 block ID，例如 minecraft:diamond_ore；中文名称只用于 UI/Excel 展示。添加矿物时必须同时考虑目标 Minecraft 版本、所在维度和默认勾选行为，不要只修改显示文本。
 
@@ -138,12 +141,17 @@ main.py 创建 tkinter.Tk，设置 Windows DPI 感知，然后实例化 OreScanG
 负责网络请求和服务端配置：
 
 - fetch_versions(version_type) 下载 Mojang manifest，并按 release 或 snapshot 过滤版本。
-- download_server() 解析版本详情中的 server 下载 URL、大小和 SHA-1，先通过 urllib.request.urlretrieve() 写入 server.jar.part，流式校验 SHA-1 通过后再替换 server.jar，随后写入 EULA 和默认属性。
+- download_server() 解析版本详情中的 server 下载 URL、大小、SHA-1 和 javaVersion，先通过 urllib.request.urlretrieve() 写入 server.jar.part，流式校验 SHA-1 通过后再替换 server.jar，随后把 javaVersion 写入 .ore-scan-server.json、写入 EULA 和默认属性。
+- get_server_java_requirement() 优先读取 .ore-scan-server.json；旧服务端没有缓存时查询 Mojang 版本详情并写回缓存。缺失或无效 javaVersion 必须视为无法安全启动。
 - update_server_properties() 读取现有 key=value，丢弃注释/空行格式，覆盖本工具要求的属性后整体重写文件。
 - find_installed_servers() 只通过子目录中是否存在 server.jar 判断“已安装”。
 - uninstall_server() 只允许递归删除 Minecraft 目录下的直接子目录，避免把仓库或目录外路径作为卸载目标。
 
 下载流程要求 Mojang manifest 提供 downloads.server.sha1。哈希不匹配时必须删除 server.jar 和临时文件并自动重试；当前最多尝试 3 次，最终失败时不得继续安装或启动未校验的服务端。
+
+### app/java_runtime.py
+
+负责发现并验证本机 Java 运行时：解析 `java -version` 的主版本，检查 JAVA_HOME、PATH、Windows 注册表和常见安装目录，以及 Linux alternatives/JVM 目录。select_java_runtime() 只能返回与 Mojang `javaVersion.majorVersion` 完全相同的运行时；没有精确匹配项时调用方必须警告用户并取消扫描，而不是尝试任意更高或更低版本。
 
 ### app/rcon.py
 
@@ -160,7 +168,7 @@ RconClient 实现 Source RCON 的最小客户端：小端序 packet header、认
 
 这是核心模块，包含三类逻辑：
 
-1. 服务端进程管理：start_server() 固定使用 Java、2 GB 最大堆和 nogui。
+1. 服务端进程管理：start_server() 接收已选择的 Java 可执行文件、使用 2 GB 最大堆和 nogui。
 2. 区块预生成：pregenerate_chunks() 以区块坐标分批发送带维度前缀的 forceload 命令，并通过磁盘阈值和 Anvil location header 检查进度。
 3. 只读扫描：解析 region 文件、压缩区块 payload、NBT sections 和 packed block states。
 

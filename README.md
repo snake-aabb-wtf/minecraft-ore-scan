@@ -23,7 +23,7 @@ Minecraft Ore Scan 是一个面向 Windows 的 Python/Tkinter 桌面工具，用
 
 - Windows 或 Linux。
 - Python 3.10 或更高版本。
-- Java JRE 或 JDK，并且 java 命令位于 PATH 中。
+- Java JRE 或 JDK。安装的主版本必须满足所选 Minecraft 服务端的 Mojang `javaVersion.majorVersion` 要求。
 - 支持 Tkinter 的 Python 安装。
 - Python 依赖：
   - nbtlib 2.0.0 或更高版本
@@ -33,7 +33,7 @@ Minecraft Ore Scan 是一个面向 Windows 的 Python/Tkinter 桌面工具，用
 
 Windows 用户将项目完整解压后，直接双击项目根目录下的 `start.bat` 即可启动程序。Linux 用户在项目根目录执行 `./start.sh` 即可启动；如果脚本没有执行权限，先执行 `chmod +x start.sh`。两个启动脚本都会自动检查并创建 `.venv` 虚拟环境，安装缺失的 Python 依赖，然后使用虚拟环境启动 `main.py`。
 
-首次启动前请确认 Python 3.10 或更高版本、Java JRE 或 JDK 已安装，并且对应的 `python`、`python3` 和 `java` 命令位于 PATH 中。Linux 用户还需要安装带 Tkinter 支持的 Python 软件包。
+首次启动前请确认 Python 3.10 或更高版本、Java JRE 或 JDK 已安装。Windows 首次启动需要 `python` 位于 PATH，Linux 首次启动需要 `python3` 位于 PATH；Java 可由程序从 `JAVA_HOME`、PATH、注册表或系统 JDK 目录中自动发现。Linux 用户还需要安装带 Tkinter 支持的 Python 软件包。
 
 安装依赖：
 
@@ -84,6 +84,14 @@ Minecraft 服务端安装目录由 GUI 自动创建。服务端世界位于具�
 
 下载完成后，程序会使用版本详情中 downloads.server.sha1 对 server.jar 进行流式 SHA-1 校验。校验失败时会删除 server.jar 和临时下载文件，并自动重试，最多尝试 3 次；仍然失败则终止安装。生产或大范围扫描前，仍应确认下载来源和目标版本。
 
+### Java 运行时选择
+
+程序以 Mojang 版本详情中的 `javaVersion.majorVersion` 作为服务端的 Java 主版本要求。安装新服务端时会把该信息保存到服务端目录的 `.ore-scan-server.json`；较早由本工具安装、尚无该文件的服务端会在首次使用时从 Mojang 官方版本详情补全。
+
+进入扫描界面后，程序会显示 Java 状态，并从 `JAVA_HOME`、PATH、Windows 注册表和常见 JDK 安装目录，或 Linux 的 `update-alternatives` 与 `/usr/lib/jvm` 中发现可用运行时。开始扫描前会重新检测，并使用与官方要求**主版本精确匹配**的 Java 可执行文件启动 `server.jar`，不会静默回退到更高或更低版本。
+
+未找到匹配版本时，界面会以红色显示“Java 不匹配”，明确说明不会使用其他主版本，并显示“安装 Java <所需版本>”按钮。按钮会打开 [Adoptium Temurin 发行版页面](https://adoptium.net/zh-CN/temurin/releases)，由用户自行选择和安装所需 Java；点击“开始扫描”还会列出已检测到的 Java 版本并阻止启动。示例：Mojang 当前元数据显示 1.16.5 需要 Java 8、1.18.2 和 1.20.4 需要 Java 17、1.20.5 需要 Java 21。实际使用的要求始终以所选服务端的官方元数据为准。
+
 ### 2. 配置扫描参数
 
 主页面提供以下参数：
@@ -115,15 +123,16 @@ Minecraft 服务端安装目录由 GUI 自动创建。服务端世界位于具�
 
 点击开始扫描后，后台线程依次执行：
 
-1. 切换到具体服务端目录，并检查 server.jar。
-2. 更新 server.properties。
-3. 启动无界面服务端。
-4. 通过 RCON 连续确认服务端已经就绪。
-5. 分批强制加载目标区块，等待区块写入 region 文件。
-6. 保存并停止服务端。
-7. 扫描已经保存的 region 文件。
-8. 计算距离、排序并导出 Excel。
-9. 恢复工作目录，关闭 RCON，回收服务端进程并恢复 GUI 状态。
+1. 从 Mojang 元数据读取服务端需要的 Java 主版本，并选择精确匹配的本机 Java。
+2. 切换到具体服务端目录，并检查 server.jar。
+3. 更新 server.properties。
+4. 使用选中的无界面 Java 服务端。
+5. 通过 RCON 连续确认服务端已经就绪。
+6. 分批强制加载目标区块，等待区块写入 region 文件。
+7. 保存并停止服务端。
+8. 扫描已经保存的 region 文件。
+9. 计算距离、排序并导出 Excel。
+10. 恢复工作目录，关闭 RCON，回收服务端进程并恢复 GUI 状态。
 
 GUI 的网络、Java、RCON、区块生成、文件扫描和 Excel 写入都在后台线程执行。停止操作通过取消标志和 RCON stop 尝试进行；对于正在执行的批次，服务端退出可能需要等待当前操作完成。
 
@@ -147,7 +156,7 @@ GUI 的网络、Java、RCON、区块生成、文件扫描和 Excel 写入都在�
 
 服务端使用以下命令启动：
 
-    java -Xmx2G -Xms1G -jar server.jar nogui
+    <自动选择的 Java 可执行文件> -Xmx2G -Xms1G -jar server.jar nogui
 
 RCON 密码是源码中的固定默认值，不是安全凭据。该服务端只应在本机临时运行，不要将 RCON 或 Minecraft 端口暴露到公网。扫描结束后应检查服务端配置，按需要关闭 RCON 或恢复正常服务端配置。
 
@@ -198,6 +207,7 @@ GUI 默认选择以上全部三种矿物。
     app/
     ├── constants.py   # 矿物列表、维度映射、API 和 RCON 常量
     ├── installer.py   # Mojang 版本清单、JAR 下载、服务端属性
+    ├── java_runtime.py # 本机 Java 发现、版本解析和运行时选择
     ├── rcon.py        # Source RCON 客户端和重连逻辑
     ├── world.py       # Java 进程、预生成、Anvil/NBT 扫描
     ├── excel.py       # 距离排序和 Excel 分表导出

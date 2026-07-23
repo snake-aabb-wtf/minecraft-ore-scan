@@ -73,6 +73,7 @@ VERSION_TYPE_OPTIONS = [
 ]
 
 MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
+ADOPTIUM_RELEASES_URL = "https://adoptium.net/zh-CN/temurin/releases"
 
 RCON_PASSWORD = "ore_scan_local"
 RCON_PORT = 25575
