@@ -7,7 +7,7 @@ import socket
 import tempfile
 import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from openpyxl import load_workbook
 
@@ -53,6 +53,21 @@ def _update_properties(path: Path, updates: dict):
 
 
 class ExistingServerSelectionSmokeTest(unittest.TestCase):
+    def test_existing_server_selection_can_uninstall_selected_server(self):
+        with tempfile.TemporaryDirectory(prefix="minecraft-ore-scan-selection-") as temp_dir:
+            minecraft_dir = Path(temp_dir) / "Minecraft"
+            server_dir = minecraft_dir / "1.21.1"
+            server_dir.mkdir(parents=True)
+            (server_dir / "server.jar").touch()
+
+            gui = OreScanGUI.__new__(OreScanGUI)
+            gui.minecraft_dir = minecraft_dir
+
+            with patch("app.gui.messagebox.askyesno", return_value=True):
+                self.assertTrue(gui._uninstall_server_with_confirmation(server_dir))
+
+            self.assertFalse(server_dir.exists())
+
     def test_startup_without_servers_opens_install_wizard(self):
         with tempfile.TemporaryDirectory(prefix="minecraft-ore-scan-selection-") as temp_dir:
             gui = OreScanGUI.__new__(OreScanGUI)

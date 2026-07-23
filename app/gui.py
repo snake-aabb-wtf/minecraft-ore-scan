@@ -125,6 +125,8 @@ class OreScanGUI:
         ttk.Button(btn_frame, text="安装新版本", command=self._show_install_page).pack(side=tk.LEFT, padx=5)
         use_button = ttk.Button(btn_frame, text="使用选中", state=tk.DISABLED)
         use_button.pack(side=tk.RIGHT, padx=5)
+        uninstall_button = ttk.Button(btn_frame, text="卸载选中", state=tk.DISABLED)
+        uninstall_button.pack(side=tk.RIGHT, padx=5)
 
         def selected_server():
             selection = tree.selection()
@@ -133,20 +135,45 @@ class OreScanGUI:
             return servers[int(selection[0])]
 
         def update_selection(event=None):
-            use_button.config(state=tk.NORMAL if selected_server() else tk.DISABLED)
+            state = tk.NORMAL if selected_server() else tk.DISABLED
+            use_button.config(state=state)
+            uninstall_button.config(state=state)
 
         def use_selected():
             server_dir = selected_server()
             if server_dir:
                 self._use_server(server_dir)
 
+        def uninstall_selected():
+            server_dir = selected_server()
+            if server_dir and self._uninstall_server_with_confirmation(server_dir):
+                self.current_server_dir = None
+                self._show_existing_server_selection_page()
+
         tree.bind("<<TreeviewSelect>>", update_selection)
         tree.bind("<Double-1>", lambda event: use_selected())
         use_button.config(command=use_selected)
+        uninstall_button.config(command=uninstall_selected)
 
     def _use_server(self, server_dir):
         self.current_server_dir = server_dir
         self._show_main_scan_page()
+
+    def _uninstall_server_with_confirmation(self, server_dir):
+        if not messagebox.askyesno(
+            "确认卸载",
+            f"即将卸载服务端 {server_dir.name}\n"
+            f"将删除整个目录及其中的世界、备份和配置：\n{server_dir}\n\n"
+            "此操作不可恢复，是否继续？",
+        ):
+            return False
+
+        try:
+            uninstall_server(server_dir, self.minecraft_dir)
+        except Exception as e:
+            messagebox.showerror("卸载失败", f"卸载服务端失败: {e}")
+            return False
+        return True
 
     def _show_install_page(self):
         self._clear_container()
@@ -544,18 +571,7 @@ class OreScanGUI:
                 return
 
             server_dir = servers[sel[0]]
-            if not messagebox.askyesno(
-                "确认卸载",
-                f"即将卸载服务端 {server_dir.name}\n"
-                f"将删除整个目录及其中的世界、备份和配置：\n{server_dir}\n\n"
-                "此操作不可恢复，是否继续？",
-            ):
-                return
-
-            try:
-                uninstall_server(server_dir, self.minecraft_dir)
-            except Exception as e:
-                messagebox.showerror("卸载失败", f"卸载服务端失败: {e}")
+            if not self._uninstall_server_with_confirmation(server_dir):
                 return
 
             remaining = find_installed_servers(self.minecraft_dir)
