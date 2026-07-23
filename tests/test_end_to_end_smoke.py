@@ -7,11 +7,13 @@ import socket
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock
 
 from openpyxl import load_workbook
 
 from app.constants import RCON_PASSWORD
 from app.excel import export_to_excel
+from app.gui import OreScanGUI
 from app.installer import (
     download_server,
     fetch_manifest,
@@ -48,6 +50,45 @@ def _update_properties(path: Path, updates: dict):
         "".join(f"{key}={value}\n" for key, value in properties.items()),
         encoding="utf-8",
     )
+
+
+class ExistingServerSelectionSmokeTest(unittest.TestCase):
+    def test_startup_without_servers_opens_install_wizard(self):
+        with tempfile.TemporaryDirectory(prefix="minecraft-ore-scan-selection-") as temp_dir:
+            gui = OreScanGUI.__new__(OreScanGUI)
+            gui.minecraft_dir = Path(temp_dir) / "Minecraft"
+            gui.current_server_dir = None
+            gui._show_existing_server_selection_page = Mock()
+            gui._show_install_page = Mock()
+
+            gui._check_minecraft_dir()
+
+            gui._show_existing_server_selection_page.assert_not_called()
+            gui._show_install_page.assert_called_once_with()
+
+    def test_startup_requires_explicit_existing_server_selection(self):
+        with tempfile.TemporaryDirectory(prefix="minecraft-ore-scan-selection-") as temp_dir:
+            minecraft_dir = Path(temp_dir) / "Minecraft"
+            server_dir = minecraft_dir / "1.21.1"
+            server_dir.mkdir(parents=True)
+            (server_dir / "server.jar").touch()
+
+            gui = OreScanGUI.__new__(OreScanGUI)
+            gui.minecraft_dir = minecraft_dir
+            gui.current_server_dir = server_dir
+            gui._show_existing_server_selection_page = Mock()
+            gui._show_install_page = Mock()
+
+            gui._check_minecraft_dir()
+
+            self.assertIsNone(gui.current_server_dir)
+            gui._show_existing_server_selection_page.assert_called_once_with()
+            gui._show_install_page.assert_not_called()
+
+            gui._show_main_scan_page = Mock()
+            gui._use_server(server_dir)
+            self.assertEqual(gui.current_server_dir, server_dir)
+            gui._show_main_scan_page.assert_called_once_with()
 
 
 @unittest.skipUnless(

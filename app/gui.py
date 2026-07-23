@@ -67,10 +67,86 @@ class OreScanGUI:
         self.minecraft_dir.mkdir(exist_ok=True)
         installed = find_installed_servers(self.minecraft_dir)
         if installed:
-            self.current_server_dir = installed[0]
-            self._show_main_scan_page()
+            self.current_server_dir = None
+            self._show_existing_server_selection_page()
         else:
             self._show_install_page()
+
+    def _show_existing_server_selection_page(self):
+        servers = find_installed_servers(self.minecraft_dir)
+        if not servers:
+            self.current_server_dir = None
+            self._show_install_page()
+            return
+
+        self._clear_container()
+        frame = ttk.Frame(self.container)
+        frame.pack(fill=tk.BOTH, expand=True)
+        self.frames["existing_server_selection"] = frame
+
+        ttk.Label(
+            frame,
+            text="已有服务端选择向导",
+            font=("Microsoft YaHei UI", 16, "bold"),
+        ).pack(pady=(0, 10))
+        ttk.Label(frame, text=f"服务端目录: {self.minecraft_dir}", foreground="gray").pack(pady=(0, 10))
+        ttk.Label(
+            frame,
+            text=f"检测到 {len(servers)} 个已安装服务端，请选择一个版本后继续。",
+            font=("Microsoft YaHei UI", 10),
+        ).pack(pady=(0, 15))
+
+        list_frame = ttk.LabelFrame(frame, text="已安装服务端", padding=10)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        columns = ("version", "directory")
+        tree = ttk.Treeview(
+            list_frame,
+            columns=columns,
+            show="headings",
+            height=12,
+            selectmode="browse",
+        )
+        tree.heading("version", text="版本号")
+        tree.heading("directory", text="服务端目录")
+        tree.column("version", width=180, anchor=tk.W)
+        tree.column("directory", width=580, anchor=tk.W)
+
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        for index, server_dir in enumerate(servers):
+            tree.insert("", tk.END, iid=str(index), values=(server_dir.name, server_dir))
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        ttk.Button(btn_frame, text="安装新版本", command=self._show_install_page).pack(side=tk.LEFT, padx=5)
+        use_button = ttk.Button(btn_frame, text="使用选中", state=tk.DISABLED)
+        use_button.pack(side=tk.RIGHT, padx=5)
+
+        def selected_server():
+            selection = tree.selection()
+            if not selection:
+                return None
+            return servers[int(selection[0])]
+
+        def update_selection(event=None):
+            use_button.config(state=tk.NORMAL if selected_server() else tk.DISABLED)
+
+        def use_selected():
+            server_dir = selected_server()
+            if server_dir:
+                self._use_server(server_dir)
+
+        tree.bind("<<TreeviewSelect>>", update_selection)
+        tree.bind("<Double-1>", lambda event: use_selected())
+        use_button.config(command=use_selected)
+
+    def _use_server(self, server_dir):
+        self.current_server_dir = server_dir
+        self._show_main_scan_page()
 
     def _show_install_page(self):
         self._clear_container()
@@ -454,9 +530,8 @@ class OreScanGUI:
         def use_selected():
             sel = lb.curselection()
             if sel:
-                self.current_server_dir = servers[sel[0]]
                 win.destroy()
-                self._show_main_scan_page()
+                self._use_server(servers[sel[0]])
 
         def install_new():
             win.destroy()
