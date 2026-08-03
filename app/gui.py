@@ -7,6 +7,7 @@ import os
 import subprocess
 import traceback
 import webbrowser
+import math
 from pathlib import Path
 
 from .constants import (
@@ -727,7 +728,9 @@ class OreScanGUI:
         if disk_free_text:
             try:
                 min_free_gb = float(disk_free_text)
-                if min_free_gb <= 0:
+                # nan/inf 视为"不限制"（与空值/非正数一致），避免传入
+                # world.py 后 int(nan) 抛 ValueError
+                if not math.isfinite(min_free_gb) or min_free_gb <= 0:
                     min_free_gb = None
             except ValueError:
                 messagebox.showwarning("警告", "磁盘空间阈值必须是数字！")
@@ -774,10 +777,8 @@ class OreScanGUI:
         self._log("正在停止... (等待当前操作完成)")
         self.stop_btn.config(state=tk.DISABLED)
 
-        def graceful_shutdown():
+        def graceful_shutdown(proc):
             time.sleep(2)
-            with self._proc_lock:
-                proc = self.server_process
             if proc:
                 try:
                     self._log("尝试优雅停止服务器...")
@@ -804,7 +805,11 @@ class OreScanGUI:
                 if self.server_process is proc:
                     self.server_process = None
 
-        self._shutdown_thread = threading.Thread(target=graceful_shutdown, daemon=True)
+        # 立即捕获本次扫描的进程引用传给停止线程：若用户停止后立刻重新
+        # 开始扫描，server_process 会被新进程覆盖，停止线程必须只操作旧进程
+        with self._proc_lock:
+            proc = self.server_process
+        self._shutdown_thread = threading.Thread(target=graceful_shutdown, args=(proc,), daemon=True)
         self._shutdown_thread.start()
 
     def _run_pipeline(self, config):

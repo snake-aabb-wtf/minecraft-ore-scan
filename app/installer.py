@@ -198,6 +198,12 @@ def write_default_properties(server_dir: Path):
 
 
 def update_server_properties(props_path: Path, seed: str):
+    # 纵深防御：seed 不得破坏 server.properties 格式（GUI 前端已校验，
+    # 这里防止其他调用方绕过；阈值与 app/validation.validate_seed 一致）
+    if not isinstance(seed, str):
+        raise ValueError("seed 必须是字符串")
+    if seed and (len(seed) > 128 or any(ch in seed for ch in "\r\n=")):
+        raise ValueError("seed 不合法：不能包含换行/等号且长度不超过 128")
     props = {}
     if props_path.exists():
         with open(props_path, "r", encoding="utf-8") as f:

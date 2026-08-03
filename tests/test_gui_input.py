@@ -131,6 +131,16 @@ class StartScanValidationTest(unittest.TestCase):
         config = gui._run_pipeline.call_args.args[0]
         self.assertEqual(config["min_free_gb"], 8.0)
 
+    def test_non_finite_disk_threshold_treated_as_unlimited(self):
+        # nan/inf 不应报错，也不应传入 world.py（int(nan) 会 ValueError）
+        for disk_value in ("nan", "inf", "-inf"):
+            gui = self._make_gui()
+            warn = self._start(gui, disk=disk_value)
+            warn.assert_not_called()
+            self.assertTrue(gui.running)
+            config = gui._run_pipeline.call_args.args[0]
+            self.assertIsNone(config["min_free_gb"])
+
     def test_invalid_origin_does_not_start(self):
         gui = self._make_gui()
         warn = self._start(gui, origin="a,b,c")
@@ -207,6 +217,35 @@ class StartScanValidationTest(unittest.TestCase):
             warn.assert_not_called()
         finally:
             existing.unlink(missing_ok=True)
+
+
+class StopScanCapturesOldProcessTest(unittest.TestCase):
+    def test_shutdown_thread_captures_old_process_reference(self):
+        # 停止线程必须捕获调用时刻的旧进程引用：即使停止后立即重新扫描
+        # （server_process 被新进程覆盖），也不会误杀新进程
+        import threading
+
+        gui = OreScanGUI.__new__(OreScanGUI)
+        gui._proc_lock = threading.Lock()
+        gui.running = True
+        old_proc = Mock()
+        gui.server_process = old_proc
+        gui._log = Mock()
+        gui.stop_btn = Mock()
+        with (
+            patch("app.gui.threading.Thread") as mock_thread,
+            patch("app.gui.time.sleep"),
+            patch("app.gui.RconClient", side_effect=Exception("no rcon")),
+        ):
+            gui._stop_scan()
+        kwargs = mock_thread.call_args.kwargs
+        self.assertEqual(kwargs["args"], (old_proc,))
+        self.assertTrue(kwargs["daemon"])
+        # 若重新扫描，server_process 更新为新进程，但停止线程仍持有旧引用
+        new_proc = Mock()
+        with gui._proc_lock:
+            gui.server_process = new_proc
+        self.assertNotEqual(kwargs["args"][0], new_proc)
 
 
 if __name__ == "__main__":

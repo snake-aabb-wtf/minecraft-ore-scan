@@ -59,6 +59,16 @@ class UpdateServerPropertiesTest(unittest.TestCase):
             text = props.read_text(encoding="utf-8")
             self.assertIn("server-ip=127.0.0.1", text)
 
+    def test_update_properties_rejects_properties_breaking_seed(self):
+        # 纵深防御：即使绕过 GUI 校验，含换行/等号/超长的 seed 也会被拒绝
+        with tempfile.TemporaryDirectory() as temp_dir:
+            props = Path(temp_dir) / "server.properties"
+            for bad in ("a\nb", "a\rb", "a=b", "x" * 129):
+                with self.assertRaises(ValueError):
+                    update_server_properties(props, bad)
+            with self.assertRaises(ValueError):
+                update_server_properties(props, None)
+
     def test_comments_and_blank_lines_are_dropped(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             props = Path(temp_dir) / "server.properties"
