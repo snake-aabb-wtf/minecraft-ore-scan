@@ -71,7 +71,7 @@ class RconClient:
                     time.sleep(2)
                     try:
                         self._connect()
-                    except:
+                    except Exception:
                         pass
             except (ConnectionError, OSError, RuntimeError) as e:
                 last_exc = e
@@ -79,7 +79,7 @@ class RconClient:
                     time.sleep(3)
                     try:
                         self._connect()
-                    except:
+                    except Exception:
                         pass
         raise last_exc
 
@@ -87,6 +87,6 @@ class RconClient:
         if self.sock:
             try:
                 self.sock.close()
-            except:
+            except Exception:
                 pass
             self.sock = None

@@ -4,6 +4,8 @@ import threading
 import time
 import sys
 import os
+import subprocess
+import traceback
 import webbrowser
 from pathlib import Path
 
@@ -29,6 +31,7 @@ from .installer import (
 from .java_runtime import find_java_runtimes, select_java_runtime, format_java_runtimes
 from .world import start_server, pregenerate_chunks, get_region_dir, scan_all_regions
 from .excel import export_to_excel
+from .validation import parse_origin, parse_radius, validate_seed, validate_output_name
 
 
 class JavaCompatibilityError(RuntimeError):
@@ -36,6 +39,8 @@ class JavaCompatibilityError(RuntimeError):
 
 
 class OreScanGUI:
+    LOG_MAX_LINES = 2000
+
     def __init__(self, root):
         self.root = root
         self.root.title("Minecraft 矿物扫描工具")
@@ -43,6 +48,7 @@ class OreScanGUI:
         self.running = False
         self.worker = None
         self.server_process = None
+        self._proc_lock = threading.Lock()
         self.manifest_data = None
 
         if getattr(sys, 'frozen', False):
@@ -56,8 +62,46 @@ class OreScanGUI:
         self.container = ttk.Frame(self.root, padding=10)
         self.container.pack(fill=tk.BOTH, expand=True)
 
-        self.frames = {}
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._check_minecraft_dir()
+
+    def _on_close(self):
+        """窗口关闭处理：任务进行中时先提示，并终止残留的服务端进程。"""
+        if self.running:
+            if not messagebox.askyesno(
+                "确认退出",
+                "任务正在进行中（扫描或安装）。\n关闭窗口将中断任务并终止服务端进程，进度无法恢复。\n确定退出吗？",
+            ):
+                return
+            self.running = False
+            self._terminate_server_process()
+        self.root.destroy()
+
+    def _terminate_server_process(self):
+        """线程安全地终止并清空 server_process（幂等，可被多个线程调用）。"""
+        with self._proc_lock:
+            proc = self.server_process
+            self.server_process = None
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except Exception:
+            pass
+
+    def _install_status(self, text):
+        """线程安全地更新安装状态标签（控件可能已被切页销毁）。"""
+
+        def _apply():
+            if (
+                self.root.winfo_exists()
+                and hasattr(self, "install_status_label")
+                and self.install_status_label.winfo_exists()
+            ):
+                self.install_status_label.config(text=text)
+
+        self.root.after(0, _apply)
 
     def _clear_container(self):
         for widget in self.container.winfo_children():
@@ -82,7 +126,6 @@ class OreScanGUI:
         self._clear_container()
         frame = ttk.Frame(self.container)
         frame.pack(fill=tk.BOTH, expand=True)
-        self.frames["existing_server_selection"] = frame
 
         ttk.Label(
             frame,
@@ -179,7 +222,6 @@ class OreScanGUI:
         self._clear_container()
         frame = ttk.Frame(self.container)
         frame.pack(fill=tk.BOTH, expand=True)
-        self.frames["install"] = frame
 
         title_label = ttk.Label(frame, text="Minecraft 服务端安装向导", font=("Microsoft YaHei UI", 16, "bold"))
         title_label.pack(pady=(0, 10))
@@ -250,6 +292,7 @@ class OreScanGUI:
     def _install_log_sync(self, msg):
         if hasattr(self, 'install_log_text') and self.install_log_text.winfo_exists():
             self.install_log_text.insert(tk.END, f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+            self._trim_log(self.install_log_text)
             self.install_log_text.see(tk.END)
 
     def _load_versions(self):
@@ -286,13 +329,17 @@ class OreScanGUI:
             self._install_log(f"获取成功，共 {len(versions)} 个{type_label}版本")
 
             def update_version_list():
+                if not self.root.winfo_exists() or not self.version_tree.winfo_exists():
+                    return
                 self.manifest_data = manifest_data
                 for v in versions:
                     self.version_tree.insert("", tk.END, values=(v["id"], v["type"], v["releaseTime"]))
-                self.install_btn.config(state=tk.NORMAL if versions else tk.DISABLED)
-                self.install_status_label.config(
-                    text=f"已加载 {len(versions)} 个{type_label}版本"
-                )
+                if self.install_btn.winfo_exists():
+                    self.install_btn.config(state=tk.NORMAL if versions else tk.DISABLED)
+                if hasattr(self, "install_status_label") and self.install_status_label.winfo_exists():
+                    self.install_status_label.config(
+                        text=f"已加载 {len(versions)} 个{type_label}版本"
+                    )
 
             self.root.after(0, update_version_list)
         except Exception as e:
@@ -303,8 +350,12 @@ class OreScanGUI:
             self.root.after(0, self._finish_version_load)
 
     def _finish_version_load(self):
-        self.refresh_btn.config(state=tk.NORMAL)
-        self.version_type_combo.config(state="readonly")
+        if not self.root.winfo_exists():
+            return
+        if self.refresh_btn.winfo_exists():
+            self.refresh_btn.config(state=tk.NORMAL)
+        if self.version_type_combo.winfo_exists():
+            self.version_type_combo.config(state="readonly")
 
     def _start_install(self):
         sel = self.version_tree.selection()
@@ -324,9 +375,11 @@ class OreScanGUI:
         try:
             server_dir = self.minecraft_dir / version_id
             self._install_log(f"开始安装版本 {version_id}...")
-            self.root.after(0, lambda: self.install_status_label.config(text=f"正在下载 Minecraft Server {version_id}..."))
+            self._install_status(f"正在下载 Minecraft Server {version_id}...")
 
             def progress(pct, downloaded, total):
+                if not self.root.winfo_exists() or not self._install_progress.winfo_exists():
+                    return
                 self.root.after(0, lambda: self._install_progress.configure(value=pct))
                 if pct % 25 == 0 and pct > 0:
                     mb = downloaded / 1024 / 1024
@@ -337,7 +390,7 @@ class OreScanGUI:
             self._install_log(f"server.jar 下载完成 ({size / 1024 / 1024:.1f} MB)")
             self._install_log("=" * 50)
             self._install_log("安装完成！正在进入主界面...")
-            self.root.after(0, lambda: self.install_status_label.config(text="安装完成！"))
+            self._install_status("安装完成！")
             time.sleep(2)
             self.current_server_dir = server_dir
             self.running = False
@@ -345,7 +398,6 @@ class OreScanGUI:
 
         except Exception as e:
             self._install_log(f"安装失败: {e}")
-            import traceback
             self._install_log(traceback.format_exc())
             self.root.after(0, lambda: messagebox.showerror("安装失败", str(e)))
             self.root.after(0, lambda: self.install_btn.config(state=tk.NORMAL))
@@ -356,7 +408,6 @@ class OreScanGUI:
         self._clear_container()
         frame = ttk.Frame(self.container)
         frame.pack(fill=tk.BOTH, expand=True)
-        self.frames["main"] = frame
 
         top_frame = ttk.Frame(frame)
         top_frame.pack(fill=tk.X, pady=(0, 10))
@@ -598,7 +649,17 @@ class OreScanGUI:
     def _log_sync(self, msg):
         if hasattr(self, 'log_text') and self.log_text.winfo_exists():
             self.log_text.insert(tk.END, f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+            self._trim_log(self.log_text)
             self.log_text.see(tk.END)
+
+    def _trim_log(self, text_widget):
+        """裁剪日志控件，防止长扫描/下载导致内存膨胀。"""
+        try:
+            line_count = int(text_widget.index('end-1c').split('.')[0])
+            if line_count > self.LOG_MAX_LINES:
+                text_widget.delete('1.0', f'{line_count - self.LOG_MAX_LINES}.0')
+        except tk.TclError:
+            pass
 
     def _populate_ores(self, dimension_id):
         for widget in self.ore_frame.winfo_children():
@@ -639,12 +700,27 @@ class OreScanGUI:
         if not ores:
             messagebox.showwarning("警告", "请至少选择一种矿物！")
             return
-        self.running = True
-        self.start_btn.config(state=tk.DISABLED)
-        self.stop_btn.config(state=tk.NORMAL)
-        self.scan_progress.start(10)
 
-        origin_parts = [int(p.strip()) for p in self.origin_var.get().strip().split(",")]
+        # 所有输入解析与校验前置到 running/按钮/进度条状态变更之前，
+        # 避免非法输入抛出的异常把 GUI 永久锁死（self.running 永为 True）。
+        origin = parse_origin(self.origin_var.get())
+        if origin is None:
+            messagebox.showwarning("警告", "原点坐标格式错误！请输入三个整数，例如: 0,64,0")
+            return
+
+        try:
+            radius_value = self.radius_var.get()
+        except tk.TclError:
+            radius_value = ""
+        radius = parse_radius(radius_value)
+        if radius is None:
+            messagebox.showwarning("警告", "区块半径必须是 1 到 500 的整数！")
+            return
+
+        seed = validate_seed(self.seed_var.get())
+        if seed is None:
+            messagebox.showwarning("警告", "种子不合法！不能包含换行/等号且长度不超过 128 个字符")
+            return
 
         disk_free_text = self.disk_free_var.get().strip()
         min_free_gb = None
@@ -655,25 +731,39 @@ class OreScanGUI:
                     min_free_gb = None
             except ValueError:
                 messagebox.showwarning("警告", "磁盘空间阈值必须是数字！")
-                self.start_btn.config(state=tk.NORMAL)
-                self.stop_btn.config(state=tk.DISABLED)
-                self.scan_progress.stop()
-                self.running = False
                 return
 
+        output_name = validate_output_name(self.output_var.get())
+        if output_name is None:
+            messagebox.showwarning(
+                "警告",
+                "输出文件名不合法！不能为空、绝对路径、含 .. 路径段或 Windows 保留字符",
+            )
+            return
+
+        output_path = self.app_dir / output_name
+        if output_path.exists() and not messagebox.askyesno(
+            "确认覆盖", f"文件已存在：\n{output_path}\n\n是否覆盖？"
+        ):
+            return
+
         config = {
-            "seed": self.seed_var.get().strip(),
+            "seed": seed,
             "dimension": dim_id,
-            "radius": self.radius_var.get(),
-            "ox": origin_parts[0],
-            "oy": origin_parts[1],
-            "oz": origin_parts[2],
-            "output": self.output_var.get().strip(),
+            "radius": radius,
+            "ox": origin[0],
+            "oy": origin[1],
+            "oz": origin[2],
+            "output": output_name,
             "ores": ores,
             "server_dir": self.current_server_dir,
             "min_free_gb": min_free_gb,
         }
 
+        self.running = True
+        self.start_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.NORMAL)
+        self.scan_progress.start(10)
         self.worker = threading.Thread(target=self._run_pipeline, args=(config,), daemon=True)
         self.worker.start()
 
@@ -686,7 +776,9 @@ class OreScanGUI:
 
         def graceful_shutdown():
             time.sleep(2)
-            if self.server_process:
+            with self._proc_lock:
+                proc = self.server_process
+            if proc:
                 try:
                     self._log("尝试优雅停止服务器...")
                     try:
@@ -695,21 +787,25 @@ class OreScanGUI:
                         rcon.close()
                         self._log("已发送 stop 命令，等待服务器关闭...")
                         time.sleep(10)
-                    except:
+                    except Exception:
                         pass
-                    if self.server_process and self.server_process.poll() is None:
+                    if proc.poll() is None:
                         self._log("强制终止服务器进程...")
                         try:
-                            self.server_process.terminate()
+                            proc.terminate()
                             time.sleep(5)
-                            if self.server_process.poll() is None:
-                                self.server_process.kill()
-                        except:
+                            if proc.poll() is None:
+                                proc.kill()
+                        except Exception:
                             pass
-                except:
+                except Exception:
                     pass
+            with self._proc_lock:
+                if self.server_process is proc:
+                    self.server_process = None
 
-        threading.Thread(target=graceful_shutdown, daemon=True).start()
+        self._shutdown_thread = threading.Thread(target=graceful_shutdown, daemon=True)
+        self._shutdown_thread.start()
 
     def _run_pipeline(self, config):
         original_cwd = os.getcwd()
@@ -752,11 +848,12 @@ class OreScanGUI:
                     self._log("检测到已有世界，将复用该世界（未指定新种子）")
 
             self._log("启动 Minecraft 服务器...")
-            self.server_process = start_server(
-                server_dir,
-                java_executable=java_runtime.executable,
-                log_callback=lambda l: self._log(f"[Server] {l}"),
-            )
+            with self._proc_lock:
+                self.server_process = start_server(
+                    server_dir,
+                    java_executable=java_runtime.executable,
+                    log_callback=lambda l: self._log(f"[Server] {l}"),
+                )
 
             self._log("等待服务器启动（约30-120秒）...")
             rcon = None
@@ -816,18 +913,20 @@ class OreScanGUI:
             finally:
                 try:
                     rcon.close()
-                except:
+                except Exception:
                     pass
 
-            if self.server_process:
+            with self._proc_lock:
+                proc = self.server_process
+                self.server_process = None
+            if proc:
                 try:
-                    self.server_process.wait(timeout=15)
+                    proc.wait(timeout=15)
                 except subprocess.TimeoutExpired:
                     try:
-                        self.server_process.kill()
-                    except:
+                        proc.kill()
+                    except Exception:
                         pass
-                self.server_process = None
 
             if cancelled or not self.running:
                 self._log("操作已被用户取消。")
@@ -838,12 +937,13 @@ class OreScanGUI:
             positions = scan_all_regions(
                 region_dir, min_chunk, max_chunk, set(config["ores"]),
                 running_check=lambda: self.running,
-                log_callback=self._log
+                log_callback=self._log,
+                error_callback=self._log,
             )
-            self._log(f"共找到 {len(positions)} 个矿物方块")
 
             output_name = config["output"]
             output_path = output_dir / output_name
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             self._log(f"共找到 {len(positions)} 个矿物方块，正在排序...")
             rows_count, sheets_count = export_to_excel(
                 positions, output_path,
@@ -865,19 +965,23 @@ class OreScanGUI:
         except Exception as e:
             error_message = str(e)
             self._log(f"✗ 错误: {error_message}")
-            import traceback
             self._log(traceback.format_exc())
             self.root.after(0, lambda: messagebox.showerror("错误", error_message))
         finally:
             os.chdir(original_cwd)
             self.running = False
-            if self.server_process:
-                try:
-                    self.server_process.kill()
-                except:
-                    pass
-                self.server_process = None
-            self.root.after(0, self._reset_scan_ui)
+            # 等待优雅停止线程完成（graceful_shutdown 内部有 terminate/kill
+            # 兜底，不会无限等待），避免打断服务端保存世界的过程
+            shutdown_thread = getattr(self, "_shutdown_thread", None)
+            if shutdown_thread and shutdown_thread.is_alive():
+                shutdown_thread.join()
+            self._terminate_server_process()
+            try:
+                if self.root.winfo_exists():
+                    self.root.after(0, self._reset_scan_ui)
+            except tk.TclError:
+                # 窗口已销毁（用户直接关闭），不再刷新 UI
+                pass
 
     def _reset_scan_ui(self):
         self.scan_progress.stop()

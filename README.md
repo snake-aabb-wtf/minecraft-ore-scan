@@ -143,6 +143,7 @@ GUI 的网络、Java、RCON、区块生成、文件扫描和 Excel 写入都在�
 | 属性 | 当前值 | 用途 |
 | --- | --- | --- |
 | server-port | 25565 | Minecraft 服务端端口 |
+| server-ip | 127.0.0.1 | 只绑定本机回环地址，避免固定 RCON 密码暴露到局域网/公网 |
 | enable-rcon | true | 启用 RCON |
 | rcon.password | ore_scan_local | GUI 使用的临时密码 |
 | rcon.port | 25575 | RCON 端口 |
@@ -211,6 +212,7 @@ GUI 默认选择以上全部三种矿物。
     ├── rcon.py        # Source RCON 客户端和重连逻辑
     ├── world.py       # Java 进程、预生成、Anvil/NBT 扫描
     ├── excel.py       # 距离排序和 Excel 分表导出
+    ├── validation.py  # GUI 输入校验纯函数（origin/radius/seed/输出名）
     └── gui.py         # Tkinter 安装向导和扫描控制器
 
 根目录 main.py 只负责创建 Tk 根窗口并启动 OreScanGUI。
@@ -363,8 +365,8 @@ legacy/ 目录中的脚本保留早期固定任务和独立 CLI 实现：
 - 服务端下载依赖 Mojang 版本详情中的 downloads.server.sha1；如果该元数据缺失，安装会直接失败，不会继续使用未校验的 JAR。
 - RCON 使用固定默认密码和端口，且当前实现面向本机临时使用；不要将其暴露到公网。
 - 卸载服务端是递归删除操作，只能删除 Minecraft/ 下的直接子目录；确认前应确保该版本中的世界和备份不再需要。
-- GitHub Actions CI 会在 Ubuntu + Temurin Java 21 中执行真实服务端冒烟测试：下载 Mojang 1.20.5 服务端并校验 SHA-1、启动 RCON、预生成一个区块、扫描 NBT 并导出/重读 Excel。测试失败时会上传不包含 server.properties 的服务端诊断日志。
-- 当没有找到矿物时，导出器会创建只有表头的 Minerals_1；当前函数返回的 worksheet 数量统计可能显示为 0，这是现有实现边界。
+- GitHub Actions CI 提供两个 job：`unit-tests`（编译 + 全部非 E2E 单元测试，无需 Minecraft/Java）和真实服务端冒烟测试（Ubuntu + Temurin Java 21：下载 Mojang 1.20.5 服务端并校验 SHA-1、启动 RCON、预生成一个区块、扫描 NBT 并导出/重读 Excel）。冒烟测试失败时会上传不包含 server.properties 的服务端诊断日志。
+- 当没有找到矿物时，导出器会创建只有表头的 Minerals_1，并返回 sheets_count=1（与文件实际一致）。
 
 ## 开发和验证
 
@@ -372,9 +374,12 @@ legacy/ 目录中的脚本保留早期固定任务和独立 CLI 实现：
 
     python -m compileall -q .
     python -c "import tkinter, nbtlib, openpyxl; print('imports: OK')"
+    python -m unittest discover -s tests -p "test_*.py" -v
     git diff --check
 
-完整的服务端闭环测试需要网络和 Java 21。GitHub Actions 会在 push 到 master、Pull Request 和手动触发时执行；本地 PowerShell 可使用：
+单元测试（tests/ 下 6 个测试文件，无需网络/Java/Minecraft）会验证 Excel 导出、Anvil/NBT 解码、服务端属性、Java 版本解析、RCON 协议和 GUI 输入校验。GitHub Actions 的 `unit-tests` job 在每次 push/PR 时运行它们。
+
+完整的服务端闭环测试需要网络和 Java 21。GitHub Actions 的 `full-pipeline-smoke` job 会在 push 到 master、Pull Request 和手动触发时执行；本地 PowerShell 可使用：
 
     $env:RUN_MINECRAFT_E2E="1"
     python -m unittest discover -s tests -p "test_*.py" -v

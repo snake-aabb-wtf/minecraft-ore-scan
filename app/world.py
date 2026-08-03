@@ -2,12 +2,25 @@ import struct
 import gzip
 import io
 import shutil
+import threading
 import zlib
 import math
 import time
 import subprocess
 from pathlib import Path
 import nbtlib
+
+
+# 预生成与扫描的固定参数（20×8=160 区块/批，低于 /forceload 256 上限）
+PREGEN_BATCH_WIDTH = 20
+PREGEN_BATCH_HEIGHT = 8
+PREGEN_BATCH_TIMEOUT_SECONDS = 900
+SAVE_FLUSH_INTERVAL_SECONDS = 10
+PROGRESS_REPORT_INTERVAL_SECONDS = 20
+POLL_INTERVAL_SECONDS = 4
+
+JVM_MAX_HEAP = "-Xmx2G"
+JVM_MIN_HEAP = "-Xms1G"
 
 
 def get_dimension_prefix(dimension: str) -> str:
@@ -65,7 +78,7 @@ def saved_count(region_dir: Path, xs: int, xe: int, zs: int, ze: int) -> int:
 def start_server(server_dir: Path, java_executable="java", log_callback=None):
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     proc = subprocess.Popen(
-        [str(java_executable), "-Xmx2G", "-Xms1G", "-jar", "server.jar", "nogui"],
+        [str(java_executable), JVM_MAX_HEAP, JVM_MIN_HEAP, "-jar", "server.jar", "nogui"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         stdin=subprocess.PIPE,
@@ -83,9 +96,8 @@ def start_server(server_dir: Path, java_executable="java", log_callback=None):
                     line = line.strip()
                     if line:
                         log_callback(line[:180])
-            except:
+            except Exception:
                 pass
-        import threading
         threading.Thread(target=read_output, daemon=True).start()
     return proc
 
@@ -94,7 +106,7 @@ def pregenerate_chunks(rcon, dimension: str, min_chunk: int, max_chunk: int, reg
                        running_check=None, log_callback=None, min_free_gb: float = None):
     region_dir.mkdir(parents=True, exist_ok=True)
     dim_prefix = get_dimension_prefix(dimension)
-    x_width, z_height = 20, 8
+    x_width, z_height = PREGEN_BATCH_WIDTH, PREGEN_BATCH_HEIGHT
     x_ranges = chunk_ranges(min_chunk, max_chunk, x_width)
     z_ranges = chunk_ranges(min_chunk, max_chunk, z_height)
     batches = [(xs, xe, zs, ze) for zs, ze in z_ranges for xs, xe in x_ranges]
@@ -141,7 +153,7 @@ def pregenerate_chunks(rcon, dimension: str, min_chunk: int, max_chunk: int, reg
                         time.sleep(5)
                         try:
                             rcon._connect()
-                        except:
+                        except Exception:
                             pass
                     else:
                         raise
@@ -157,25 +169,25 @@ def pregenerate_chunks(rcon, dimension: str, min_chunk: int, max_chunk: int, reg
                     return False
                 now = time.monotonic()
                 elapsed = int(now - start_time)
-                if elapsed > 900:
+                if elapsed > PREGEN_BATCH_TIMEOUT_SECONDS:
                     raise RuntimeError(f"批次 {num} 超时 ({elapsed}s)")
-                if now - last_save >= 10:
+                if now - last_save >= SAVE_FLUSH_INTERVAL_SECONDS:
                     try:
                         rcon.command("save-all flush", retries=1)
                         last_save = now
-                    except:
+                    except Exception:
                         pass
                 count = saved_count(region_dir, xs, xe, zs, ze)
-                if now - last_report >= 20:
+                if now - last_report >= PROGRESS_REPORT_INTERVAL_SECONDS:
                     if log_callback:
                         log_callback(f"  进度: {count}/{expected}, {elapsed}s")
                     last_report = now
-                time.sleep(4)
+                time.sleep(POLL_INTERVAL_SECONDS)
             try:
                 rcon.command("save-all flush", retries=2)
                 time.sleep(2)
                 rcon.command(remove_cmd, retries=2)
-            except:
+            except Exception:
                 if log_callback:
                     log_callback("  警告: forceload remove 命令失败，继续下一批...")
             time.sleep(3)
@@ -242,9 +254,14 @@ def read_chunk_payload(f, sector_offset):
     if len(length_data) != 4:
         return None
     length = struct.unpack(">i", length_data)[0]
-    if length <= 0:
+    # 区块 payload 不可能超过约 64 MB；拒绝恶意声明的超大 length，
+    # 避免分配巨量缓冲（本地 DoS 防护）
+    if length <= 0 or length > 64 * 1024 * 1024:
         return None
-    comp = f.read(1)[0]
+    comp_data = f.read(1)
+    if len(comp_data) != 1:
+        return None
+    comp = comp_data[0]
     payload = f.read(length - 1)
     if comp == 1:
         return gzip.decompress(payload)
@@ -286,7 +303,7 @@ def scan_region(path: Path, min_chunk: int, max_chunk: int, target_ids: set, err
 
 
 def scan_all_regions(region_dir: Path, min_chunk: int, max_chunk: int, target_ids: set,
-                     running_check=None, log_callback=None):
+                     running_check=None, log_callback=None, error_callback=None):
     positions = []
     region_min = min_chunk // 32 - 1
     region_max = max_chunk // 32 + 1
@@ -300,7 +317,9 @@ def scan_all_regions(region_dir: Path, min_chunk: int, max_chunk: int, target_id
             if not rpath.exists():
                 continue
             regions_scanned += 1
-            positions.extend(scan_region(rpath, min_chunk, max_chunk, target_ids))
+            positions.extend(
+                scan_region(rpath, min_chunk, max_chunk, target_ids, error_callback=error_callback)
+            )
             if regions_scanned % 5 == 0:
                 if log_callback:
                     log_callback(f"扫描 region: {regions_scanned}/{total_regions}, 找到 {len(positions)} 个矿物")

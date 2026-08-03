@@ -8,7 +8,7 @@ def main():
     try:
         from ctypes import windll
         windll.shcore.SetProcessDpiAwareness(1)
-    except:
+    except Exception:
         pass
     app = OreScanGUI(root)
     root.mainloop()

@@ -32,5 +32,6 @@ def export_to_excel(positions, output_path: Path, ox: int, oy: int, oz: int, log
     if sheet is None:
         sheet = wb.create_sheet("Minerals_1")
         sheet.append(headers)
+        sheet_num = 1
     wb.save(output_path)
     return len(rows), sheet_num

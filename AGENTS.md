@@ -31,6 +31,7 @@
     │   ├── installer.py      # 版本清单、server.jar 下载、服务端属性
     │   ├── java_runtime.py   # 本机 Java 发现、版本解析和精确选择
     │   ├── rcon.py           # 带重连的 Source RCON 客户端
+    │   ├── validation.py     # GUI 输入校验纯函数（origin/radius/seed/输出名）
     │   └── world.py          # 服务端进程、预生成、Anvil/NBT 扫描
     ├── docs/
     │   ├── 说明文档.md       # 历史任务和通用脚本说明
@@ -41,7 +42,13 @@
     │   └── references/       # 矿物 ID 与显示名参考
     ├── main.py               # GUI 程序入口
     ├── tests/
-    │   └── test_end_to_end_smoke.py # 受环境变量保护的真实服务端闭环测试
+    │   ├── test_end_to_end_smoke.py # 受环境变量保护的真实服务端闭环测试
+    │   ├── test_excel.py            # 导出器排序/零结果/可重新打开
+    │   ├── test_world.py            # Anvil/NBT 解码、维度映射、location 读取
+    │   ├── test_installer.py        # 属性更新/Java 需求/卸载安全/SHA-1 校验
+    │   ├── test_java_runtime.py     # java -version 解析与运行时选择
+    │   ├── test_rcon.py             # mock socket 的 RCON 协议测试
+    │   └── test_gui_input.py        # 输入校验纯函数与 _start_scan 校验路径
     ├── requirements.txt      # Python 运行依赖
     ├── start.bat             # Windows 启动器，创建/检查 .venv、安装依赖后运行 main.py
     ├── start.sh              # Linux 启动器，创建/检查 .venv、安装依赖后运行 main.py
@@ -197,7 +204,18 @@ export_to_excel() 接受 (x, y, z, block_id) 记录，计算距离平方，按�
 
 使用 openpyxl.Workbook(write_only=True)，每个 worksheet 写入一行表头和最多 1,048,575 行数据，超过限制时创建 Minerals_2、Minerals_3 等。每个矿物方块占一行，不合并矿脉。
 
-当前一个边界行为是：当 positions 为空时，文件仍会创建带表头的 Minerals_1，但函数返回的 sheets_count 为 0，GUI 日志可能显示“0 个工作表”。修改导出器时要明确决定是否修正这个返回值，并同步验证空结果场景。
+当 positions 为空时，文件仍会创建带表头的 Minerals_1，且返回的 sheets_count 为 1（与文件实际一致），GUI 日志显示“0 条数据写入 1 个工作表”。
+
+### app/validation.py
+
+集中维护 GUI 输入校验的纯函数（无 Tk/网络依赖，便于单元测试）：
+
+- parse_origin(text)：解析逗号分隔的三整数原点，非法返回 None；合法 X,Y,Z 语义不变。
+- parse_radius(text)：解析区块半径并检查 GUI 允许范围 1 到 500。
+- validate_seed(text)：空 seed 合法（复用已有世界）；拒绝换行/等号（防破坏 server.properties）和超长输入。
+- validate_output_name(text)：只允许相对程序输出目录的文件名，拒绝绝对路径、`..` 路径段和 Windows 保留字符。
+
+GUI 必须在变更运行状态（self.running、按钮禁用、进度条启动）之前完成全部输入校验，非法输入以友好提示结束，不允许抛异常锁死 GUI。
 
 ### app/gui.py
 
@@ -312,7 +330,7 @@ legacy/actual-run/ 保存固定范围的主世界/下界预生成、钻石/远�
 
 ## 9. 验证方式
 
-仓库使用标准库 unittest，并在 GitHub Actions 中提供真实服务端的全流程冒烟测试；当前仍没有 formatter 或 linter 配置。每次修改至少执行以下检查：
+仓库使用标准库 unittest。GitHub Actions 提供两个 job：`unit-tests`（编译 + 全部非 E2E 单元测试，无需 Minecraft/Java，秒级反馈）和 `full-pipeline-smoke`（真实服务端全流程冒烟测试）；当前仍没有 formatter 或 linter 配置。每次修改至少执行以下检查：
 
     python -m compileall -q .
     python -c "import tkinter, nbtlib, openpyxl; print('imports: OK')"
@@ -345,10 +363,12 @@ legacy/actual-run/ 保存固定范围的主世界/下界预生成、钻石/远�
 
 - download_server() 使用 Mojang 提供的下载地址、大小和 SHA-1；缺失 SHA-1 元数据或连续校验失败时会终止安装。
 - scan_all_regions() 为覆盖边界会检查 min_chunk // 32 - 1 到 max_chunk // 32 + 1 的 region 文件，不过 scan_region() 仍会过滤到目标区块范围；这会带来额外文件检查但不会按设计把范围外区块加入结果。
-- scan_region() 可以捕获单个 region 的解析异常并返回已经收集的部分结果。GUI 当前调用 scan_all_regions() 时没有传入错误回调，因此某些损坏 region 的错误可能只表现为结果偏少。
-- 空矿物结果会产生一个只有表头的 Minerals_1，但 export_to_excel() 返回的 worksheet 数量为 0；涉及导出统计的修改必须覆盖此边界。
-- GUI 对 origin 的长度没有单独的友好校验；格式不正确会在后台线程中以异常结束并显示错误。改进输入校验时不要改变合法 X,Y,Z 的含义。
-- GUI 输出名来自用户输入，当前没有专门的文件名白名单或冲突确认。修改时要避免意外覆盖已有 Excel 或源码文件。
+- scan_region() 可以捕获单个 region 的解析异常并返回已经收集的部分结果；GUI 通过 error_callback 把损坏 region 的错误记入日志，避免静默丢结果。
+- 空矿物结果会产生一个只有表头的 Minerals_1，export_to_excel() 返回的 sheets_count 为 1（与文件一致），GUI 日志显示“0 条数据写入 1 个工作表”。
+- GUI 的 origin/radius/seed/output 输入在开始扫描前经 app/validation.py 校验并给出友好提示；seed 拒绝换行/等号，输出文件名拒绝绝对路径、`..` 逃逸和 Windows 保留字符，覆盖已存在文件前会弹确认框。
+- GUI 输出名来自用户输入，校验后只允许相对程序输出目录的文件名，覆盖前有确认框，避免意外覆盖已有 Excel 或源码文件。
+- 窗口关闭（WM_DELETE_WINDOW）时若任务进行中会先确认，再终止残留的服务端进程后销毁窗口。
+- 服务端进程（self.server_process）的所有读写由 _proc_lock 保护，停止路径与扫描收尾并发访问是安全的。
 - docs/ 和 legacy/ 文档包含历史路径、固定范围和早期脚本示例；当前 GUI 行为应以 app/ 源码和 README 为准。
 
 ## 11. Git 和远端协作

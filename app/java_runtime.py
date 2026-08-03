@@ -23,6 +23,8 @@ class JavaRuntime:
 
 def parse_java_version(output: str):
     """Return a Java major version and printable version string from java -version output."""
+    if not isinstance(output, str):
+        return None
     match = JAVA_VERSION_PATTERN.search(output)
     if not match:
         return None

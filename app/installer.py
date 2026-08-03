@@ -141,7 +141,10 @@ def download_server(server_dir: Path, version_id: str, manifest: dict, progress_
             if progress_callback:
                 def reporthook(block_num, block_size, total_size):
                     downloaded = block_num * block_size
-                    pct = min(100, int(downloaded * 100 / total_size))
+                    if total_size > 0:
+                        pct = min(100, int(downloaded * 100 / total_size))
+                    else:
+                        pct = 0
                     progress_callback(pct, downloaded, total_size)
                 urllib.request.urlretrieve(server_url, partial_jar, reporthook=reporthook)
             else:
@@ -177,6 +180,7 @@ def write_eula(server_dir: Path):
 def write_default_properties(server_dir: Path):
     props = {
         "server-port": "25565",
+        "server-ip": "127.0.0.1",
         "enable-rcon": "true",
         "rcon.password": RCON_PASSWORD,
         "rcon.port": str(RCON_PORT),
@@ -202,7 +206,11 @@ def update_server_properties(props_path: Path, seed: str):
                 if "=" in line and not line.startswith("#"):
                     k, v = line.split("=", 1)
                     props[k] = v
-    props["level-seed"] = seed
+    if seed:
+        props["level-seed"] = seed
+    else:
+        props.pop("level-seed", None)
+    props["server-ip"] = "127.0.0.1"
     props["enable-rcon"] = "true"
     props["rcon.password"] = RCON_PASSWORD
     props["rcon.port"] = str(RCON_PORT)
