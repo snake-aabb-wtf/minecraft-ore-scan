@@ -126,7 +126,7 @@ class ValidateCustomBlockIdTest(unittest.TestCase):
 
 
 class StartScanValidationTest(unittest.TestCase):
-    def _make_gui(self, custom=""):
+    def _make_gui(self, custom="", custom_enabled=False):
         gui = OreScanGUI.__new__(OreScanGUI)
         gui.running = False
         gui.worker = None
@@ -137,6 +137,8 @@ class StartScanValidationTest(unittest.TestCase):
         gui._get_selected_config = lambda: (["minecraft:diamond_ore"], "minecraft:overworld")
         gui.custom_ore_var = Mock()
         gui.custom_ore_var.get = lambda: custom
+        gui.custom_ore_enabled_var = Mock()
+        gui.custom_ore_enabled_var.get = lambda: custom_enabled
         gui.origin_var = Mock()
         gui.radius_var = Mock()
         gui.seed_var = Mock()
@@ -265,7 +267,7 @@ class StartScanValidationTest(unittest.TestCase):
             existing.unlink(missing_ok=True)
 
     def test_custom_block_id_appended_to_ores(self):
-        gui = self._make_gui(custom="minecraft:bedrock")
+        gui = self._make_gui(custom="minecraft:bedrock", custom_enabled=True)
         warn = self._start(gui)
         warn.assert_not_called()
         self.assertTrue(gui.running)
@@ -274,7 +276,7 @@ class StartScanValidationTest(unittest.TestCase):
         self.assertEqual(config["ores"], ["minecraft:diamond_ore", "minecraft:bedrock"])
 
     def test_custom_block_id_only_starts(self):
-        gui = self._make_gui(custom="minecraft:bedrock")
+        gui = self._make_gui(custom="minecraft:bedrock", custom_enabled=True)
         gui._get_selected_config = lambda: ([], "minecraft:overworld")
         warn = self._start(gui)
         warn.assert_not_called()
@@ -284,7 +286,7 @@ class StartScanValidationTest(unittest.TestCase):
 
     def test_custom_block_id_only_works_for_end(self):
         # 末地没有内置矿物选项，自定义 ID 是唯一扫描途径
-        gui = self._make_gui(custom="modid:end_block")
+        gui = self._make_gui(custom="modid:end_block", custom_enabled=True)
         gui._get_selected_config = lambda: ([], "minecraft:the_end")
         warn = self._start(gui)
         warn.assert_not_called()
@@ -294,11 +296,27 @@ class StartScanValidationTest(unittest.TestCase):
         self.assertEqual(config["ores"], ["modid:end_block"])
 
     def test_invalid_custom_block_id_warns_and_does_not_start(self):
-        gui = self._make_gui(custom="Bedrock")
+        gui = self._make_gui(custom="Bedrock", custom_enabled=True)
         warn = self._start(gui)
         warn.assert_called_once()
         self.assertFalse(gui.running)
         gui._run_pipeline.assert_not_called()
+
+    def test_checked_blank_custom_block_id_warns_and_does_not_start(self):
+        gui = self._make_gui(custom="", custom_enabled=True)
+        warn = self._start(gui)
+        warn.assert_called_once()
+        self.assertFalse(gui.running)
+        gui._run_pipeline.assert_not_called()
+
+    def test_unchecked_custom_block_id_is_ignored(self):
+        # 未勾选时即使输入了文本也不参与扫描、不警告
+        gui = self._make_gui(custom="minecraft:bedrock", custom_enabled=False)
+        warn = self._start(gui)
+        warn.assert_not_called()
+        self.assertTrue(gui.running)
+        config = gui._run_pipeline.call_args.args[0]
+        self.assertEqual(config["ores"], ["minecraft:diamond_ore"])
 
     def test_blank_custom_block_id_is_ignored(self):
         gui = self._make_gui(custom="")
