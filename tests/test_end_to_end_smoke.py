@@ -23,12 +23,17 @@ from app.installer import (
 )
 from app.java_runtime import find_java_runtimes, select_java_runtime
 from app.rcon import RconClient
-from app.world import get_region_dir, location_entry_exists, pregenerate_chunks, scan_all_regions, start_server
+from app.world import get_region_dir, pregenerate_chunks, saved_count, scan_all_regions, start_server
 
 
 SMOKE_VERSION = "1.20.5"
 SMOKE_JAVA_MAJOR = 21
-SMOKE_CHUNK = 32
+# radius=2 的区块范围：-2..1，共 4×4=16 个区块
+SMOKE_MIN_CHUNK = -2
+SMOKE_MAX_CHUNK = 1
+# minecraft:stone 保留原冒烟证明；minecraft:bedrock 不在 ALL_ORES 中，
+# 作为自定义方块 ID 走完整扫描与原始 ID 导出路径
+SMOKE_TARGET_IDS = {"minecraft:stone", "minecraft:bedrock"}
 SERVER_START_TIMEOUT_SECONDS = 180
 SERVER_STOP_TIMEOUT_SECONDS = 60
 
@@ -213,13 +218,21 @@ class MinecraftEndToEndSmokeTest(unittest.TestCase):
                     pregenerate_chunks(
                         rcon,
                         "minecraft:overworld",
-                        SMOKE_CHUNK,
-                        SMOKE_CHUNK,
+                        SMOKE_MIN_CHUNK,
+                        SMOKE_MAX_CHUNK,
                         region_dir,
                         running_check=lambda: True,
                     )
                 )
-                self.assertTrue(location_entry_exists(region_dir, SMOKE_CHUNK, SMOKE_CHUNK))
+                expected_chunks = (SMOKE_MAX_CHUNK - SMOKE_MIN_CHUNK + 1) ** 2
+                self.assertEqual(
+                    saved_count(
+                        region_dir,
+                        SMOKE_MIN_CHUNK, SMOKE_MAX_CHUNK,
+                        SMOKE_MIN_CHUNK, SMOKE_MAX_CHUNK,
+                    ),
+                    expected_chunks,
+                )
 
                 rcon.command("save-all flush", retries=1)
                 rcon.command("stop", retries=1)
@@ -229,12 +242,18 @@ class MinecraftEndToEndSmokeTest(unittest.TestCase):
 
                 positions = scan_all_regions(
                     region_dir,
-                    SMOKE_CHUNK,
-                    SMOKE_CHUNK,
-                    {"minecraft:stone"},
+                    SMOKE_MIN_CHUNK,
+                    SMOKE_MAX_CHUNK,
+                    SMOKE_TARGET_IDS,
                     running_check=lambda: True,
                 )
-                self.assertTrue(positions, "generated chunk did not contain scanable stone blocks")
+                stone_positions = [p for p in positions if p[3] == "minecraft:stone"]
+                bedrock_positions = [p for p in positions if p[3] == "minecraft:bedrock"]
+                self.assertTrue(stone_positions, "generated chunk did not contain scanable stone blocks")
+                self.assertTrue(
+                    bedrock_positions,
+                    "custom block ID minecraft:bedrock was not found in generated chunks",
+                )
 
                 output_path = Path(temp_dir) / "smoke-results.xlsx"
                 rows_count, sheets_count = export_to_excel(positions, output_path, 0, 64, 0)
@@ -243,8 +262,16 @@ class MinecraftEndToEndSmokeTest(unittest.TestCase):
                 workbook = load_workbook(output_path, read_only=True)
                 try:
                     self.assertIn("Minerals_1", workbook.sheetnames)
-                    headers = next(workbook["Minerals_1"].iter_rows(values_only=True))
+                    sheet = workbook["Minerals_1"]
+                    headers = next(sheet.iter_rows(values_only=True))
                     self.assertEqual(headers[:4], ("X", "Y", "Z", "Mineral"))
+                    minerals = {
+                        row[3]
+                        for row in sheet.iter_rows(min_row=2, values_only=True)
+                        if row[3] is not None
+                    }
+                    self.assertIn("minecraft:stone", minerals)
+                    self.assertIn("minecraft:bedrock", minerals)
                 finally:
                     workbook.close()
             except Exception:
