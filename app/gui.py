@@ -678,7 +678,7 @@ class OreScanGUI:
         default_ores = DIMENSION_DEFAULT_ORES.get(dimension_id, set())
         if not ores:
             ttk.Label(self.ore_frame, text="(该维度没有可用的矿物)", foreground="gray").grid(row=0, column=0, sticky=tk.W, pady=5)
-            self._grid_custom_ore_entry(1, 0)
+            self._grid_custom_ore_entry(1)
             return
         cols = min(5, max(1, len(ores)))
         for i, (ore_id, ore_name) in enumerate(ores):
@@ -687,33 +687,40 @@ class OreScanGUI:
             ttk.Checkbutton(self.ore_frame, text=ore_name, variable=var).grid(
                 row=i // cols, column=i % cols, sticky=tk.W, padx=8, pady=2)
         last = len(ores) - 1
-        self._grid_custom_ore_entry(last // cols, last % cols + 1)
+        # 自定义方块区域放在矿物复选框下方独立一行，用 columnspan=5 跨越
+        # 矿物网格整行（见 _grid_custom_ore_entry），不参与矿物列的列宽计算
+        self._grid_custom_ore_entry(last // cols + 1)
 
-    def _grid_custom_ore_entry(self, row, col):
-        """在矿物复选框区域放置"自定义方块"勾选项与 ID 输入框。
+    def _grid_custom_ore_entry(self, row):
+        """在矿物复选框下方放置"自定义方块"勾选项与 ID 输入框。
 
         与其他矿物一致采用勾选生效：勾选后才启用输入框，扫描时才把自定义
-        方块 ID 加入目标集合；不勾选则输入框禁用且完全不参与扫描。有矿物
-        时放在最后一个复选框右侧（主世界即"深层绿宝石矿"旁边）；末地等
-        空矿物维度放在"(该维度没有可用的矿物)"提示下方。维度切换时重建
-        控件，但勾选状态与已输入值都通过 self.custom_ore_*_var 保留。
+        方块 ID 加入目标集合；不勾选则输入框禁用且完全不参与扫描。复选框与
+        输入框放在一个 columnspan=5 的子容器中、grid 在矿物网格的下一行：
+        子容器整体跨越矿物 5 列，请求宽度远小于矿物列自然总宽，因此不会撑
+        宽任何单列（若把输入框直接放进某一列，width=30 会把该列撑宽，造成
+        相邻矿物复选框之间的异常间距）。末地等空矿物维度放在"(该维度没有
+        可用的矿物)"提示下方。维度切换时重建控件，但勾选状态与已输入值都
+        通过 self.custom_ore_*_var 保留。
         """
+        container = ttk.Frame(self.ore_frame)
         self.custom_ore_entry = ttk.Entry(
-            self.ore_frame, textvariable=self.custom_ore_var, width=30
+            container, textvariable=self.custom_ore_var, width=30
         )
         self.custom_ore_check = ttk.Checkbutton(
-            self.ore_frame,
+            container,
             text="自定义方块",
             variable=self.custom_ore_enabled_var,
             command=lambda e=self.custom_ore_entry: e.config(
                 state=tk.NORMAL if self.custom_ore_enabled_var.get() else tk.DISABLED
             ),
         )
-        self.custom_ore_check.grid(row=row, column=col, sticky=tk.W, padx=8, pady=2)
-        self.custom_ore_entry.grid(row=row, column=col + 1, sticky=tk.W, pady=2)
+        self.custom_ore_check.pack(side=tk.LEFT, padx=(0, 8), pady=2)
+        self.custom_ore_entry.pack(side=tk.LEFT, pady=2)
         self.custom_ore_entry.config(
             state=tk.NORMAL if self.custom_ore_enabled_var.get() else tk.DISABLED
         )
+        container.grid(row=row, column=0, columnspan=5, sticky=tk.W)
 
     def _on_dimension_changed(self, event=None):
         dim_text = self.dim_var.get()
