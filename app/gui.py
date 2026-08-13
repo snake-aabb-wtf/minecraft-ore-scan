@@ -32,7 +32,13 @@ from .installer import (
 from .java_runtime import find_java_runtimes, select_java_runtime, format_java_runtimes
 from .world import start_server, pregenerate_chunks, get_region_dir, scan_all_regions
 from .excel import export_to_excel
-from .validation import parse_origin, parse_radius, validate_seed, validate_output_name
+from .validation import (
+    parse_origin,
+    parse_radius,
+    validate_seed,
+    validate_output_name,
+    validate_custom_block_id,
+)
 
 
 class JavaCompatibilityError(RuntimeError):
@@ -484,6 +490,7 @@ class OreScanGUI:
         self.ore_frame = ttk.Frame(config_frame)
         self.ore_frame.grid(row=row, column=1, columnspan=3, sticky=tk.W, pady=5)
         self.ore_vars = {}
+        self.custom_ore_var = tk.StringVar(value="")
         self._populate_ores("minecraft:overworld")
         row += 1
 
@@ -670,6 +677,7 @@ class OreScanGUI:
         default_ores = DIMENSION_DEFAULT_ORES.get(dimension_id, set())
         if not ores:
             ttk.Label(self.ore_frame, text="(该维度没有可用的矿物)", foreground="gray").grid(row=0, column=0, sticky=tk.W, pady=5)
+            self._grid_custom_ore_entry(1, 0)
             return
         cols = min(5, max(1, len(ores)))
         for i, (ore_id, ore_name) in enumerate(ores):
@@ -677,6 +685,20 @@ class OreScanGUI:
             self.ore_vars[ore_id] = var
             ttk.Checkbutton(self.ore_frame, text=ore_name, variable=var).grid(
                 row=i // cols, column=i % cols, sticky=tk.W, padx=8, pady=2)
+        last = len(ores) - 1
+        self._grid_custom_ore_entry(last // cols, last % cols + 1)
+
+    def _grid_custom_ore_entry(self, row, col):
+        """在矿物复选框区域放置自定义方块 ID 输入框。
+
+        有矿物时放在最后一个复选框右侧（主世界即"深层绿宝石矿"旁边）；
+        末地等空矿物维度放在"(该维度没有可用的矿物)"提示下方。输入框随
+        维度切换重建，但 self.custom_ore_var 保留用户已输入的值。
+        """
+        ttk.Label(self.ore_frame, text="自定义方块ID:").grid(
+            row=row, column=col, sticky=tk.W, padx=(8, 0), pady=2)
+        ttk.Entry(self.ore_frame, textvariable=self.custom_ore_var, width=30).grid(
+            row=row, column=col + 1, sticky=tk.W, pady=2)
 
     def _on_dimension_changed(self, event=None):
         dim_text = self.dim_var.get()
@@ -698,6 +720,13 @@ class OreScanGUI:
         if self.running:
             return
         ores, dim_id = self._get_selected_config()
+        custom_var = getattr(self, "custom_ore_var", None)
+        custom_id = validate_custom_block_id(custom_var.get() if custom_var else "")
+        if custom_id is None:
+            messagebox.showwarning("警告", "自定义方块ID不合法！格式: 命名空间:方块ID，例如 minecraft:diamond_ore")
+            return
+        if custom_id:
+            ores.append(custom_id)
         if not ores:
             messagebox.showwarning("警告", "请至少选择一种矿物！")
             return

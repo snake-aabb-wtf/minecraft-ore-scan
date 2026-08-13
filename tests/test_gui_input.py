@@ -81,8 +81,52 @@ class ValidateOutputNameTest(unittest.TestCase):
             self.assertIsNone(validate_output_name(bad))
 
 
+class ValidateCustomBlockIdTest(unittest.TestCase):
+    """validate_custom_block_id 纯函数测试（类内惰性导入，保证函数未实现时
+    本模块其余测试仍可收集）。"""
+
+    @staticmethod
+    def _validate(text):
+        from app.validation import validate_custom_block_id
+
+        return validate_custom_block_id(text)
+
+    def test_valid_block_ids(self):
+        self.assertEqual(self._validate("minecraft:bedrock"), "minecraft:bedrock")
+        self.assertEqual(self._validate("thermal:tin_ore"), "thermal:tin_ore")
+        self.assertEqual(self._validate("betterend.forest:ore"), "betterend.forest:ore")
+        self.assertEqual(self._validate("my-mod:block"), "my-mod:block")
+        self.assertEqual(self._validate("modded:path/with_slash"), "modded:path/with_slash")
+        self.assertEqual(self._validate("minecraft:deepslate_diamond_ore"), "minecraft:deepslate_diamond_ore")
+
+    def test_whitespace_is_stripped(self):
+        self.assertEqual(self._validate("  minecraft:bedrock  "), "minecraft:bedrock")
+
+    def test_blank_is_allowed_as_empty(self):
+        self.assertEqual(self._validate(""), "")
+        self.assertEqual(self._validate("   "), "")
+
+    def test_invalid_block_ids(self):
+        for bad in (
+            "bedrock",          # 缺少命名空间
+            ":stone",           # 空命名空间
+            "minecraft:",       # 空路径
+            "Bedrock",          # 大写（NBT 名称恒为小写）
+            "Minecraft:stone",  # 大写命名空间
+            "mine craft:stone", # 内部空格
+            "minecraft:bad space",
+            "minecraft:\nstone",  # 内部换行（strip 只去首尾）
+            "a\rb",
+            "x=y",
+            "x" * 129,          # 超长
+            None,
+            123,
+        ):
+            self.assertIsNone(self._validate(bad))
+
+
 class StartScanValidationTest(unittest.TestCase):
-    def _make_gui(self):
+    def _make_gui(self, custom=""):
         gui = OreScanGUI.__new__(OreScanGUI)
         gui.running = False
         gui.worker = None
@@ -91,6 +135,8 @@ class StartScanValidationTest(unittest.TestCase):
         gui.current_server_dir = Path("server")
         gui.ore_vars = {}
         gui._get_selected_config = lambda: (["minecraft:diamond_ore"], "minecraft:overworld")
+        gui.custom_ore_var = Mock()
+        gui.custom_ore_var.get = lambda: custom
         gui.origin_var = Mock()
         gui.radius_var = Mock()
         gui.seed_var = Mock()
@@ -217,6 +263,50 @@ class StartScanValidationTest(unittest.TestCase):
             warn.assert_not_called()
         finally:
             existing.unlink(missing_ok=True)
+
+    def test_custom_block_id_appended_to_ores(self):
+        gui = self._make_gui(custom="minecraft:bedrock")
+        warn = self._start(gui)
+        warn.assert_not_called()
+        self.assertTrue(gui.running)
+        config = gui._run_pipeline.call_args.args[0]
+        self.assertIn("minecraft:bedrock", config["ores"])
+        self.assertEqual(config["ores"], ["minecraft:diamond_ore", "minecraft:bedrock"])
+
+    def test_custom_block_id_only_starts(self):
+        gui = self._make_gui(custom="minecraft:bedrock")
+        gui._get_selected_config = lambda: ([], "minecraft:overworld")
+        warn = self._start(gui)
+        warn.assert_not_called()
+        self.assertTrue(gui.running)
+        config = gui._run_pipeline.call_args.args[0]
+        self.assertEqual(config["ores"], ["minecraft:bedrock"])
+
+    def test_custom_block_id_only_works_for_end(self):
+        # 末地没有内置矿物选项，自定义 ID 是唯一扫描途径
+        gui = self._make_gui(custom="modid:end_block")
+        gui._get_selected_config = lambda: ([], "minecraft:the_end")
+        warn = self._start(gui)
+        warn.assert_not_called()
+        self.assertTrue(gui.running)
+        config = gui._run_pipeline.call_args.args[0]
+        self.assertEqual(config["dimension"], "minecraft:the_end")
+        self.assertEqual(config["ores"], ["modid:end_block"])
+
+    def test_invalid_custom_block_id_warns_and_does_not_start(self):
+        gui = self._make_gui(custom="Bedrock")
+        warn = self._start(gui)
+        warn.assert_called_once()
+        self.assertFalse(gui.running)
+        gui._run_pipeline.assert_not_called()
+
+    def test_blank_custom_block_id_is_ignored(self):
+        gui = self._make_gui(custom="")
+        warn = self._start(gui)
+        warn.assert_not_called()
+        self.assertTrue(gui.running)
+        config = gui._run_pipeline.call_args.args[0]
+        self.assertEqual(config["ores"], ["minecraft:diamond_ore"])
 
 
 class StopScanCapturesOldProcessTest(unittest.TestCase):

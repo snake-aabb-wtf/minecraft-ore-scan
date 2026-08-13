@@ -6,10 +6,17 @@ GUI 在变更运行状态（self.running、按钮禁用、进度条启动）之�
 """
 
 import ntpath
+import re
 
 GUI_RADIUS_MIN = 1
 GUI_RADIUS_MAX = 500
 MAX_SEED_LENGTH = 128
+MAX_CUSTOM_BLOCK_ID_LENGTH = 128
+
+# Minecraft 资源定位符（resource location）：namespace:path，均为小写。
+# 命名空间 [a-z0-9_.-]+，路径 [a-z0-9/._-]+。自定义方块 ID（如模组方块）
+# 必须符合该语法，否则不可能匹配 NBT palette 中的 Name。
+_RESOURCE_LOCATION_RE = re.compile(r"^[a-z0-9_.-]+:[a-z0-9/._-]+$")
 
 # Windows 文件名保留字符（跨平台检查，因为输出 Excel 主要面向 Windows 用户）
 _INVALID_FILENAME_CHARS = '<>:"|?*'
@@ -92,3 +99,25 @@ def validate_output_name(text):
     if any(ch in name for ch in _INVALID_FILENAME_CHARS) or any(ord(ch) < 32 for ch in name):
         return None
     return name
+
+
+def validate_custom_block_id(text):
+    """校验自定义方块 ID 文本。
+
+    空字符串合法（表示不指定自定义方块）。合法值必须是 Minecraft 资源
+    定位符语法（namespace:path，仅小写字母/数字/下划线/点/连字符/斜杠），
+    长度不超过 128；非法时返回 None。匹配按原始 block ID 进行，例如
+    "modid:custom_block" 会直接加入扫描目标集合。
+    """
+    if not isinstance(text, str):
+        return None
+    block_id = text.strip()
+    if not block_id:
+        return ""
+    if len(block_id) > MAX_CUSTOM_BLOCK_ID_LENGTH:
+        return None
+    if any(ch in block_id for ch in "\r\n="):
+        return None
+    if not _RESOURCE_LOCATION_RE.match(block_id):
+        return None
+    return block_id
